@@ -1,0 +1,863 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>골프캐스트 & 다인</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Noto+Serif+KR:wght@500;700&family=Noto+Sans+KR:wght@300;400;500;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* Layout: clubhouse yardage book — home is a single search on a contour-line green; results stack course → 7-day card strip → three menu doors; each door opens its own view */
+:root{
+  --bg:#0c1a14; --bg2:#10231a; --surface:#142a20; --surface2:#1a3428;
+  --ink:#eef0e8; --muted:#9fb1a6; --line:rgba(201,168,106,.22);
+  --brass:#c9a86a; --brass-ink:#0c1a14; --green:#6fbf93; --rain:#7fb2ea; --warn:#e58a68;
+  --font-display:"Cormorant Garamond","Noto Serif KR",Georgia,serif;
+  --font-serif:"Noto Serif KR","Apple SD Gothic Neo",serif;
+  --font-ui:"Noto Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --shadow:0 18px 40px rgba(0,0,0,.35);
+  color-scheme:dark;
+}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){
+  --bg:#f5f6f1; --bg2:#eceee6; --surface:#ffffff; --surface2:#f3f4ee;
+  --ink:#13231b; --muted:#5f6f66; --line:rgba(140,110,50,.28);
+  --brass:#9a7a3a; --brass-ink:#ffffff; --green:#1f6a46; --rain:#2c66a8; --warn:#b5512c;
+  --shadow:0 14px 30px rgba(20,40,30,.10); color-scheme:light}}
+:root[data-theme="light"]{
+  --bg:#f5f6f1; --bg2:#eceee6; --surface:#ffffff; --surface2:#f3f4ee;
+  --ink:#13231b; --muted:#5f6f66; --line:rgba(140,110,50,.28);
+  --brass:#9a7a3a; --brass-ink:#ffffff; --green:#1f6a46; --rain:#2c66a8; --warn:#b5512c;
+  --shadow:0 14px 30px rgba(20,40,30,.10); color-scheme:light}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--ink);font:400 15px/1.6 var(--font-ui);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+[hidden]{display:none!important}
+a{color:inherit}
+.gut{padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px))}
+.wrap{max-width:980px;margin:0 auto}
+.eyebrow{font:500 11px/1 var(--font-ui);letter-spacing:.24em;text-transform:uppercase;color:var(--brass)}
+:focus-visible{outline:2px solid var(--brass);outline-offset:3px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ---------- 홈 ---------- */
+#home{min-height:100vh;min-height:100dvh;display:flex;align-items:center;position:relative;overflow:hidden;padding-block:60px}
+#home canvas{position:absolute;inset:0;width:100%;height:100%;opacity:.5;pointer-events:none}
+.hero{position:relative;width:100%;max-width:640px;margin:0 auto}
+.mark{font:600 clamp(40px,9vw,68px)/1 var(--font-display);letter-spacing:.01em;margin:14px 0 6px}
+.mark em{font-style:italic;color:var(--brass)}
+.sub{color:var(--muted);margin:0 0 30px;font-weight:300;font-size:15.5px}
+.search{position:relative}
+.search input{width:100%;font:400 17px var(--font-ui);padding:18px 56px 18px 20px;border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink);box-shadow:var(--shadow);transition:border-color .2s}
+.search input::placeholder{color:var(--muted)}
+.search input:focus{outline:none;border-color:var(--brass)}
+.search .go{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:42px;height:42px;border-radius:10px;border:0;background:var(--brass);color:var(--brass-ink);cursor:pointer;display:grid;place-items:center}
+.suggest{position:absolute;left:0;right:0;top:calc(100% + 8px);background:var(--surface);border:1px solid var(--line);border-radius:14px;max-height:360px;overflow:auto;box-shadow:var(--shadow);z-index:80}
+.suggest button{display:block;width:100%;text-align:left;border:0;background:none;padding:13px 18px;font:inherit;color:var(--ink);cursor:pointer;border-bottom:1px solid var(--line)}
+.suggest button:last-child{border-bottom:0}
+.suggest button:hover,.suggest button:focus{background:var(--surface2);outline:none}
+.suggest b{font-weight:500}
+.suggest small{display:block;color:var(--muted);font-size:12.5px}
+.suggest .loading{padding:12px 18px;font-size:12.5px}
+.sg-head{position:sticky;top:0;background:var(--surface2);padding:9px 18px;font-size:12px;letter-spacing:.04em;color:var(--brass);border-bottom:1px solid var(--line);z-index:1}
+.suggest mark{background:none;color:var(--brass);font-weight:700}
+.suggest .sim{margin-left:8px;font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);vertical-align:2px}
+.hint{margin-top:14px;color:var(--muted);font-size:13px}
+.notice{margin-top:16px;padding:14px 18px;border-radius:12px;border:1px solid var(--line);background:var(--surface);font-size:14px}
+.notice.bad{border-color:color-mix(in srgb,var(--warn) 60%,transparent);color:var(--warn)}
+
+/* ---------- 상단 바 ---------- */
+.bar{position:sticky;top:0;z-index:70;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line);padding-top:calc(env(safe-area-inset-top,0px) + 10px);padding-bottom:10px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:75;background:var(--bg)}
+.bar .wrap{display:flex;align-items:center;gap:14px}
+.bar .logo{font:600 20px var(--font-display);white-space:nowrap;cursor:pointer;background:none;border:0;color:var(--ink);padding:0}
+.bar .logo em{color:var(--brass)}
+.bar .search{flex:1;min-width:0}
+.bar .search input{padding:11px 46px 11px 14px;font-size:15px;border-radius:11px;box-shadow:none}
+.bar .search .go{width:34px;height:34px;right:5px;border-radius:8px}
+
+/* ---------- 결과 ---------- */
+#result{padding-bottom:60px}
+.course{padding:34px 0 26px;border-bottom:1px solid var(--line)}
+.course h1{font:700 clamp(28px,6vw,40px)/1.15 var(--font-serif);margin:10px 0 8px;letter-spacing:-.01em;text-wrap:balance}
+.facts{display:flex;flex-wrap:wrap;gap:8px 22px;color:var(--muted);font-size:13.5px}
+.facts span b{color:var(--ink);font-weight:500}
+.now{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-top:20px}
+.now div{background:var(--surface);padding:14px 16px}
+.now small{display:block;color:var(--muted);font-size:11.5px;letter-spacing:.06em}
+.now b{font:600 22px var(--font-display);}
+.now b i{font-style:normal;font-size:13px;color:var(--muted);font-family:var(--font-ui);font-weight:400;margin-left:2px}
+@media (max-width:560px){.now{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.sec-h{display:flex;justify-content:space-between;align-items:end;gap:12px;margin:34px 0 14px}
+.sec-h h2{font:700 20px var(--font-serif);margin:6px 0 0}
+.linkbtn{background:none;border:0;color:var(--brass);font:500 13px var(--font-ui);cursor:pointer;padding:4px 0;white-space:nowrap}
+
+.week{display:grid;grid-template-columns:repeat(7,minmax(118px,1fr));gap:10px;overflow-x:auto;padding-bottom:6px;scroll-snap-type:x mandatory;scrollbar-width:thin}
+.dcard{scroll-snap-align:start;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 12px 12px;text-align:left;font:inherit;color:var(--ink);cursor:pointer;transition:border-color .2s,transform .2s;display:flex;flex-direction:column;gap:6px}
+.dcard:hover{transform:translateY(-2px)}
+.dcard[aria-pressed="true"]{border-color:var(--brass);box-shadow:inset 0 0 0 1px var(--brass)}
+.dcard .dw{font-size:12px;color:var(--muted)}
+.dcard .dw b{color:var(--ink);font-weight:500;font-size:14px;margin-right:4px}
+.dcard svg{width:34px;height:34px}
+.dcard .tp{font:600 21px var(--font-display)}
+.dcard .tp i{font-style:normal;color:var(--muted);font-size:16px}
+.dcard .mini{font-size:12px;color:var(--muted);line-height:1.5}
+.dcard .mini .r{color:var(--rain)}
+.grade{margin-top:4px;font-size:11.5px;font-weight:500;padding:3px 8px;border-radius:999px;align-self:flex-start}
+.g-a{background:color-mix(in srgb,var(--green) 18%,transparent);color:var(--green)}
+.g-b{background:color-mix(in srgb,var(--brass) 20%,transparent);color:var(--brass)}
+.g-c{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+
+.tees{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-top:14px}
+.tee{background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0}
+.tee .th{display:flex;justify-content:space-between;align-items:baseline}
+.tee .th b{font-weight:500}
+.tee .th span{font:600 18px var(--font-display)}
+.tee .tn{color:var(--muted);font-size:12.5px;margin:2px 0 8px}
+.tee ul{margin:0;padding-left:16px;font-size:13.5px;line-height:1.55}
+.tee li+li{margin-top:3px}
+
+.tblwrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface);margin-top:14px}
+table{border-collapse:collapse;font-size:12px;width:max-content;min-width:100%}
+th,td{padding:7px 8px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
+th.m,td.m{position:sticky;left:0;background:var(--surface);text-align:left;font-weight:500;z-index:1}
+thead th{color:var(--muted);font-weight:400}
+tr.cons td{font-weight:700}
+
+.doors{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:38px}
+@media (max-width:640px){.doors{grid-template-columns:1fr}}
+.door{position:relative;text-align:left;font:inherit;color:var(--ink);cursor:pointer;border:1px solid var(--line);border-radius:16px;padding:22px 20px 20px;background:linear-gradient(160deg,var(--surface2),var(--surface));overflow:hidden;transition:border-color .2s,transform .2s;min-height:150px;display:flex;flex-direction:column;justify-content:space-between;gap:16px}
+.door:hover{border-color:var(--brass);transform:translateY(-2px)}
+.door svg.ic{width:30px;height:30px;color:var(--brass)}
+.door h3{font:700 18px var(--font-serif);margin:0 0 4px}
+.door p{margin:0;color:var(--muted);font-size:13px}
+.door .arrow{position:absolute;right:18px;top:20px;color:var(--brass);font-size:18px}
+
+/* ---------- 하위 화면 ---------- */
+.view{padding-bottom:60px}
+.vh{padding:22px 0 8px}
+.back{background:none;border:0;color:var(--brass);font:500 14px var(--font-ui);cursor:pointer;padding:6px 0}
+.vh h2{font:700 26px var(--font-serif);margin:8px 0 2px}
+.vh p{color:var(--muted);margin:0;font-size:13.5px}
+.seg{display:flex;gap:4px;padding:4px;border:1px solid var(--line);border-radius:12px;background:var(--surface);margin:18px 0 14px;overflow-x:auto}
+.seg button{flex:1 0 auto;font:500 14px var(--font-ui);padding:10px 14px;border:0;border-radius:9px;background:none;color:var(--muted);cursor:pointer;white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--brass);color:var(--brass-ink)}
+.mapbox{height:min(62vh,520px);border-radius:16px;border:1px solid var(--line);overflow:hidden;max-width:100%;background:var(--surface)}
+.ctrl{display:flex;align-items:center;gap:12px;margin:14px 0;flex-wrap:wrap}
+.ctrl input[type=range]{flex:1;min-width:150px;accent-color:var(--brass)}
+.ctrl .lab{font-size:13.5px;min-width:0}
+.btn{font:500 14px var(--font-ui);padding:10px 16px;border-radius:10px;border:1px solid var(--brass);background:var(--brass);color:var(--brass-ink);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn.ghost{background:transparent;color:var(--brass)}
+.links{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.note{color:var(--muted);font-size:12.5px;line-height:1.65;margin:10px 0}
+.status{display:flex;gap:14px;align-items:center;padding:16px 18px;border:1px solid var(--line);border-radius:14px;background:var(--surface);margin-bottom:14px}
+.status .dot{width:12px;height:12px;border-radius:50%;flex:0 0 auto}
+.status b{font:700 17px var(--font-serif)}
+.status small{display:block;color:var(--muted);font-size:12.5px}
+
+.list{display:grid;gap:10px}
+.ic-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);flex-wrap:wrap}
+.ic-row b{font-weight:500}
+.ic-row small{display:block;color:var(--muted);font-size:12.5px}
+
+.rest{display:grid;grid-template-columns:44px minmax(0,1fr);gap:14px;padding:18px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+.rank{font:600 30px/1 var(--font-display);color:var(--brass);text-align:center;padding-top:2px}
+.rest h4{font:700 17px var(--font-serif);margin:0 0 6px;overflow-wrap:anywhere}
+.meta{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted)}
+.meta b{color:var(--ink);font-weight:500}
+.stars{color:var(--brass);letter-spacing:1px}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px}
+.tag{font-size:11.5px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.tag.on{border-color:color-mix(in srgb,var(--brass) 60%,transparent);color:var(--brass)}
+.rest .actions{display:flex;gap:8px;flex-wrap:wrap}
+.loading{color:var(--muted);font-size:13.5px;padding:14px 0}
+.leaflet-container{background:var(--surface);font-family:var(--font-ui)}
+footer{color:var(--muted);font-size:12px;padding:30px 0 10px;border-top:1px solid var(--line);margin-top:40px}
+</style>
+</head>
+<body>
+
+<!-- 홈 -->
+<section id="home" class="gut">
+  <canvas id="contour" aria-hidden="true"></canvas>
+  <div class="hero">
+    <div class="eyebrow">Golfer's Weather &amp; Table</div>
+    <div class="mark">GolfCast <em>&amp;</em> Dine</div>
+    <p class="sub">전국 골프장의 7일 라운딩 날씨, 구름과 비, 근처 맛집까지. 모든 정보는 검색하는 순간 실시간으로 가져옵니다.</p>
+    <form class="search" data-search>
+      <input type="search" id="q1" autocomplete="off" placeholder="골프장 이름 (두 글자 이상)" aria-label="골프장 검색">
+      <button class="go" type="submit" aria-label="검색"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+      <div class="suggest" role="listbox" hidden></div>
+    </form>
+    <div class="hint">예: 안양, 남부, 레이크, 트리니티</div>
+    <div class="notice" hidden data-msg></div>
+  </div>
+</section>
+
+<!-- 상단 바 (결과·하위 화면 공용) -->
+<header class="bar gut" id="bar" hidden>
+  <div class="wrap">
+    <button class="logo" type="button" id="logo">G<em>&amp;</em>D</button>
+    <form class="search" data-search>
+      <input type="search" id="q2" autocomplete="off" placeholder="다른 골프장 검색" aria-label="골프장 검색">
+      <button class="go" type="submit" aria-label="검색"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+      <div class="suggest" role="listbox" hidden></div>
+    </form>
+  </div>
+</header>
+
+<!-- 결과 -->
+<main id="result" class="gut" hidden>
+  <div class="wrap">
+    <div class="notice" hidden data-msg></div>
+    <section class="course">
+      <div class="eyebrow" id="cRegion">Golf Course</div>
+      <h1 id="cName"></h1>
+      <div class="facts" id="cFacts"></div>
+      <div class="now" id="cNow"></div>
+    </section>
+
+    <div class="sec-h"><div><div class="eyebrow">7-Day Forecast</div><h2>7일간 라운딩 예보</h2></div>
+      <button class="linkbtn" id="toggleModels" type="button">예보 모델 11종 비교</button></div>
+    <div class="week" id="week"><div class="loading">실시간 예보 불러오는 중…</div></div>
+    <div class="tees" id="tees"></div>
+    <div id="models" hidden>
+      <div class="tblwrap"><table id="mTable"></table></div>
+      <p class="note">숫자는 시간당 강수량(mm)입니다. 첫 줄은 통합 예보의 강수확률, 마지막 줄은 비를 예보한 모델의 비율입니다.</p>
+    </div>
+
+    <nav class="doors" aria-label="상세 메뉴">
+      <button class="door" type="button" data-go="cloud">
+        <svg class="ic" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 23h14a5 5 0 0 0 .6-9.96A7 7 0 0 0 10.2 12 5.5 5.5 0 0 0 9 23Z"/><circle cx="25" cy="7" r="2"/><path d="M25 3v1M29 7h-1"/></svg>
+        <span class="arrow">→</span>
+        <div><h3>실시간 구름 사진</h3><p>천리안·히마와리 위성 구름과 6시간 구름 이동 예보</p></div>
+      </button>
+      <button class="door" type="button" data-go="rain">
+        <svg class="ic" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="8" width="18" height="12" rx="2"/><path d="m22 12 6-3v10l-6-3"/><path d="M9 25l-1 3M14 25l-1 3M19 25l-1 3"/></svg>
+        <span class="arrow">→</span>
+        <div><h3>실시간 CCTV · 비 확인</h3><p>골프장 주변 강수 레이더와 인근 IC 도로 CCTV</p></div>
+      </button>
+      <button class="door" type="button" data-go="food">
+        <svg class="ic" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 4v10a3 3 0 0 1-6 0V4M7 4v24M24 28V4c-3 2-5 6-5 11h5"/></svg>
+        <span class="arrow">→</span>
+        <div><h3>골프장 근처 맛집</h3><p>아침·점심·저녁 추천과 차로 걸리는 시간</p></div>
+      </button>
+    </nav>
+    <footer>날씨 Open-Meteo(기상청·ECMWF 등) · 위성 NASA GIBS · 레이더 RainViewer · 지도·식당 OpenStreetMap · 경로 OSRM. 저장되는 데이터 없이 매번 실시간 조회합니다.</footer>
+  </div>
+</main>
+
+<!-- 구름 -->
+<main id="v-cloud" class="view gut" hidden>
+  <div class="wrap">
+    <div class="vh"><button class="back" type="button" data-back>← 골프장으로</button>
+      <h2>실시간 구름 사진</h2><p data-cn></p></div>
+    <div class="seg" id="cloudSeg">
+      <button type="button" data-m="sat" aria-pressed="true">위성 실사 (최근 2시간)</button>
+      <button type="button" data-m="fc" aria-pressed="false">구름 이동 예보 (+6시간)</button>
+    </div>
+    <div class="mapbox" id="cloudMap"></div>
+    <div class="ctrl">
+      <button class="btn" id="cPlay" type="button">재생</button>
+      <input type="range" id="cSlider" min="0" max="0" value="0" aria-label="시각 선택">
+      <span class="lab" id="cLab">불러오는 중…</span>
+    </div>
+    <div class="seg" id="bandSeg" style="max-width:360px">
+      <button type="button" data-b="ir" aria-pressed="true">적외 (밤낮 공통)</button>
+      <button type="button" data-b="vis" aria-pressed="false">가시광 (낮 실사)</button>
+    </div>
+    <p class="note" id="cNote"></p>
+    <div class="links">
+      <a class="btn ghost" href="https://www.weather.go.kr/w/image/sat/gk2a.do" target="_blank" rel="noopener">기상청 천리안 2A 원본 영상</a>
+      <a class="btn ghost" href="https://nmsc.kma.go.kr" target="_blank" rel="noopener">국가기상위성센터</a>
+    </div>
+  </div>
+</main>
+
+<!-- 비 / CCTV -->
+<main id="v-rain" class="view gut" hidden>
+  <div class="wrap">
+    <div class="vh"><button class="back" type="button" data-back>← 골프장으로</button>
+      <h2>실시간 CCTV · 비 확인</h2><p data-cn></p></div>
+    <div class="status" id="rainNow"><span class="dot" style="background:var(--muted)"></span><div><b>골프장 현재 강수 확인 중…</b></div></div>
+    <div class="mapbox" id="rainMap"></div>
+    <div class="ctrl">
+      <button class="btn" id="rPlay" type="button">재생</button>
+      <input type="range" id="rSlider" min="0" max="0" value="0" aria-label="레이더 시각">
+      <span class="lab" id="rLab">레이더 불러오는 중…</span>
+    </div>
+    <p class="note">강수 레이더는 최근 약 2시간을 10분 간격으로 보여줍니다. 골프장(금색 점) 주변에 색이 있으면 지금 비나 눈이 내리는 곳입니다.</p>
+    <div class="sec-h"><div><div class="eyebrow">Road CCTV</div><h2>인근 IC · 도로 CCTV</h2></div></div>
+    <div class="links">
+      <a class="btn ghost" href="https://www.utic.go.kr" target="_blank" rel="noopener">UTIC 도시교통 CCTV</a>
+      <a class="btn ghost" href="https://www.roadplus.co.kr" target="_blank" rel="noopener">한국도로공사 로드플러스</a>
+      <a class="btn ghost" href="https://www.its.go.kr" target="_blank" rel="noopener">국가교통정보센터</a>
+    </div>
+    <div class="list" id="icList"><div class="loading">주변 IC 찾는 중…</div></div>
+    <p class="note">CCTV 영상 자체는 국가교통정보센터 인증키가 있어야 연결할 수 있어, 가장 가까운 IC 기준으로 네이버 지도 CCTV와 공식 CCTV 지도로 바로 연결합니다.</p>
+  </div>
+</main>
+
+<!-- 맛집 -->
+<main id="v-food" class="view gut" hidden>
+  <div class="wrap">
+    <div class="vh"><button class="back" type="button" data-back>← 골프장으로</button>
+      <h2>골프장 근처 맛집</h2><p data-cn></p></div>
+    <div class="seg" id="foodSeg">
+      <button type="button" data-f="all" aria-pressed="true">0. 종합</button>
+      <button type="button" data-f="bf" aria-pressed="false">1. 아침</button>
+      <button type="button" data-f="lu" aria-pressed="false">2. 점심</button>
+      <button type="button" data-f="di" aria-pressed="false">3. 저녁</button>
+    </div>
+    <div class="list" id="foodList"><div class="loading">반경 10km 식당과 차량 소요시간 실시간 조회 중…</div></div>
+    <p class="note">평가는 광고·협찬 리뷰의 영향을 받는 별점 대신, 골프장에서의 차량 소요시간, 영업시간(아침은 07시 이전 오픈), 시간대별 메뉴 적합도, 연락처·주차 정보 여부로 계산한 골퍼 기준 점수입니다. 대표메뉴는 상호와 등록 업종에서 가져온 것이라 실제 메뉴와 다를 수 있습니다. 소요시간은 도로 기준이며, 실시간 교통이 반영된 시간은 네이버 길찾기에서 확인하세요.</p>
+    <div class="links" id="foodMore"></div>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const enc=encodeURIComponent;
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const KR_BBOX="33,124.5,38.7,131.9";
+const OVERPASS=["https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter"];
+const DOW=["일","월","화","수","목","금","토"];
+let course=null, wx=null, selDay=0;
+
+/* ===== 홈 배경: 그린 등고선 ===== */
+(function contour(){
+  const cv=$("#contour"),ctx=cv.getContext("2d");
+  function draw(){
+    const w=cv.width=cv.offsetWidth*devicePixelRatio,h=cv.height=cv.offsetHeight*devicePixelRatio;
+    ctx.clearRect(0,0,w,h);
+    ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue("--brass").trim();
+    ctx.lineWidth=1*devicePixelRatio;
+    const cx=w*.72,cy=h*.38;
+    for(let k=1;k<22;k++){
+      ctx.globalAlpha=Math.max(.05,.42-k*.017);ctx.beginPath();
+      for(let a=0;a<=Math.PI*2+.05;a+=.05){
+        const r=k*Math.min(w,h)*.045*(1+.18*Math.sin(3*a+k*.4)+.08*Math.cos(5*a-k*.2));
+        const x=cx+r*Math.cos(a)*1.35,y=cy+r*Math.sin(a);
+        a===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+      }ctx.stroke();
+    }
+    ctx.globalAlpha=1;ctx.fillStyle=ctx.strokeStyle;ctx.beginPath();ctx.arc(cx,cy,3*devicePixelRatio,0,7);ctx.fill();
+  }
+  draw();addEventListener("resize",draw);
+  matchMedia("(prefers-color-scheme: light)").addEventListener?.("change",draw);
+})();
+
+/* ===== 골프장 실시간 검색 ===== */
+const norm=s=>(s||"").toLowerCase().replace(/\s+/g,"");
+const coreTerm=q=>norm(q).replace(/(컨트리클럽|골프클럽|골프앤리조트|골프리조트|골프장|씨씨|cc|gc|c\.c\.?)$/i,"");
+/* 모든 외부 호출에 시간 제한 (멈춤 방지) */
+const _fetch=window.fetch.bind(window);
+window.fetch=(url,opt={},ms=15000)=>{const ac=new AbortController();const t=setTimeout(()=>ac.abort(),ms);
+  return _fetch(url,{...opt,signal:ac.signal}).finally(()=>clearTimeout(t))};
+async function nominatim(core){
+  const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${enc(core)}&format=jsonv2&countrycodes=kr&limit=40&accept-language=ko`);
+  if(!r.ok)throw 0;
+  return (await r.json()).filter(p=>p.type==="golf_course"||/골프|CC|컨트리/i.test(p.name||"")&&p.category==="leisure")
+    .map(p=>{const a=p.display_name.split(",").map(s=>s.trim()).slice(1).reverse();
+      return{name:p.name,lat:+p.lat,lon:+p.lon,addr:a.filter(x=>!/^\d|대한민국|South Korea/.test(x)).join(" ")}});
+}
+async function photon(core){
+  const r=await fetch(`https://photon.komoot.io/api/?q=${enc(core)}&osm_tag=leisure:golf_course&limit=20&bbox=124.5,33,131.9,38.7`);
+  if(!r.ok)throw 0;
+  return (await r.json()).features.map(f=>{const p=f.properties;return{name:p.name,lat:f.geometry.coordinates[1],lon:f.geometry.coordinates[0],
+    addr:[p.state,p.city,p.county,p.district,p.locality].filter(Boolean).join(" "),osm:p.osm_type&&p.osm_id?p.osm_type+p.osm_id:null}});
+}
+async function overpass(q,ms=25000){
+  let last;
+  for(const ep of OVERPASS){
+    try{const r=await fetch(ep,{method:"POST",body:"data="+enc(q),headers:{"Content-Type":"application/x-www-form-urlencoded"}},ms);
+      if(r.ok)return (await r.json()).elements;last=r.status}catch(e){last=e}
+  }
+  throw last;
+}
+async function overpassCourses(core){
+  const rx=core.replace(/[.*+?^${}()|[\]\\"]/g,"\\$&");
+  const els=await overpass(`[out:json][timeout:25];nwr["leisure"="golf_course"]["name"~"${rx}",i](${KR_BBOX});out center tags 40;`);
+  return els.filter(e=>e.tags?.golf!=="driving_range").map(e=>({name:e.tags.name,lat:e.lat??e.center?.lat,lon:e.lon??e.center?.lon,tags:e.tags,
+    addr:[e.tags["addr:province"],e.tags["addr:city"],e.tags["addr:district"]].filter(Boolean).join(" ")}));
+}
+/* --- 전국 골프장 목록: 화면을 열 때 지도 서버에서 실시간으로 받아 이 화면에서만 사용 (저장 안 함) --- */
+let ALL=null, allP=null;
+function loadAll(){
+  if(allP)return allP;
+  allP=overpass(`[out:json][timeout:60];area["ISO3166-1"="KR"][admin_level=2]->.k;nwr["leisure"="golf_course"]["name"](area.k);out center tags;`,50000)
+    .then(els=>{ALL=dedupe(els.filter(e=>e.tags?.golf!=="driving_range").map(e=>({name:e.tags.name,lat:e.lat??e.center?.lat,lon:e.lon??e.center?.lon,tags:e.tags,
+      addr:[e.tags["addr:province"],e.tags["addr:city"],e.tags["addr:district"]].filter(Boolean).join(" ")})));return ALL})
+    .catch(e=>{allP=null;throw e});
+  return allP;
+}
+const BAD=/연습장|스크린|driving|파3|파크골프|그라운드골프/i;
+function dedupe(list){const seen=new Set();
+  return list.filter(c=>c.name&&c.lat&&!BAD.test(c.name)).filter(c=>{const k=norm(c.name);if(seen.has(k))return false;seen.add(k);return true})}
+/* --- 비슷한 이름 찾기 --- */
+const variants=n=>[n,n.replace(/컨트리클럽|컨츄리클럽|컨트리|씨씨/g,"cc").replace(/골프클럽|골프앤리조트/g,"gc")];
+const bigr=s=>{const b=new Set();for(let i=0;i<s.length-1;i++)b.add(s.slice(i,i+2));return b};
+function subseq(v,q){let i=0;for(const ch of v)if(ch===q[i])i++;return i===q.length}
+function fuzzy(name,q){
+  let best=0;
+  for(const v of variants(norm(name))){
+    let s=0;
+    if(v.startsWith(q))s=100;
+    else if(v.includes(q))s=88;
+    else if(q.length>=3&&subseq(v,q))s=70;
+    else{
+      const qb=bigr(q),vb=bigr(v);let hit=0;qb.forEach(x=>vb.has(x)&&hit++);
+      const bo=qb.size?hit/qb.size:0;
+      const qc=[...new Set(q)],co=qc.filter(c=>v.includes(c)).length/qc.length;
+      const r=Math.max(bo,co*(v[0]===q[0]?.95:.8));
+      if(q.length>=2&&r>=.66)s=30+r*35;
+    }
+    best=Math.max(best,s);
+  }
+  return best;
+}
+function rank(list,q){
+  return dedupe(list).map(c=>({...c,_s:fuzzy(c.name,q)})).filter(c=>c._s>0).sort((a,b)=>b._s-a._s||a.name.length-b.name.length);
+}
+function hl(name,q){
+  const qs=new Set(q);return [...name].map(ch=>qs.has(ch.toLowerCase())?`<mark>${esc(ch)}</mark>`:esc(ch)).join("");
+}
+let seq=0;
+$$("form[data-search]").forEach(form=>{
+  const input=form.querySelector("input"),box=form.querySelector(".suggest");let t;
+  input.addEventListener("focus",()=>loadAll().catch(()=>{}));
+  input.addEventListener("input",()=>{clearTimeout(t);const core=coreTerm(input.value);
+    if(core.length<2){box.hidden=true;return}t=setTimeout(()=>search(core,false,input,box),ALL?60:300)});
+  input.addEventListener("keydown",e=>{
+    const items=[...box.querySelectorAll("button")];if(box.hidden||!items.length)return;
+    let i=items.indexOf(document.activeElement);
+    if(e.key==="ArrowDown"){e.preventDefault();items[Math.min(i+1,items.length-1)].focus()}
+  });
+  box.addEventListener("keydown",e=>{
+    const items=[...box.querySelectorAll("button")],i=items.indexOf(document.activeElement);
+    if(e.key==="ArrowDown"){e.preventDefault();items[Math.min(i+1,items.length-1)]?.focus()}
+    if(e.key==="ArrowUp"){e.preventDefault();i<=0?input.focus():items[i-1].focus()}
+    if(e.key==="Escape"){box.hidden=true;input.focus()}
+  });
+  form.addEventListener("submit",e=>{e.preventDefault();const core=coreTerm(input.value);
+    if(core.length<2){showMsg("골프장 이름을 두 글자 이상 입력해 주세요.");return}search(core,true,input,box)});
+});
+function renderList(res,q,input,box,pending){
+  box.hidden=false;box.innerHTML="";
+  const exact=res.filter(c=>c._s>=88).length;
+  const head=document.createElement("div");head.className="sg-head";
+  head.textContent=exact?`일치하는 골프장 ${exact}곳${res.length>exact?` · 비슷한 이름 ${res.length-exact}곳`:""}`:`비슷한 이름의 골프장 ${res.length}곳 — 이 중에서 고르세요`;
+  box.appendChild(head);
+  res.slice(0,20).forEach(c=>{const b=document.createElement("button");b.type="button";b.setAttribute("role","option");
+    b.innerHTML=`<b>${hl(c.name,q)}</b>${c._s<88?'<span class="sim">비슷한 이름</span>':""}<small>${esc(c.addr||"주소 정보 없음")}</small>`;
+    b.onclick=()=>{box.hidden=true;input.value=c.name;select(c)};box.appendChild(b)});
+  if(pending){const p=document.createElement("div");p.className="loading";p.textContent="전국 골프장 목록을 받는 중… 더 많은 결과가 곧 추가됩니다.";box.appendChild(p)}
+}
+async function search(core,deep,input,box){
+  const my=++seq;
+  hideMsg();
+  if(ALL){
+    const res=rank(ALL,core);
+    if(res.length){if(deep&&res.filter(c=>c._s>=88).length===1&&res[0]._s>=88){box.hidden=true;input.value=res[0].name;select(res[0]);return}
+      renderList(res,core,input,box,false);return}
+    box.hidden=true;notFound(input);return;
+  }
+  box.hidden=false;box.innerHTML=`<div class="loading">실시간 지도에서 ‘${esc(core)}’ 찾는 중…</div>`;
+  let quick=[],ok=0;
+  const allTask=loadAll().then(()=>{ok++}).catch(()=>{});
+  try{quick=rank(await photon(core),core);ok++}catch(e){}
+  if(my!==seq)return;
+  if(quick.length)renderList(quick,core,input,box,true);
+  await allTask;
+  if(my!==seq)return;
+  if(ALL)return search(core,deep,input,box);
+  // 전국 목록을 못 받은 경우: 이름 검색으로 대체
+  let res=quick;
+  try{res=rank(res.concat(await overpassCourses(core)),core);ok++}catch(e){}
+  try{res=rank(res.concat(await nominatim(core)),core);ok++}catch(e){}
+  if(my!==seq)return;
+  if(res.length){renderList(res,core,input,box,false);return}
+  box.hidden=true;
+  if(!ok){showMsg(location.protocol==="file:"||!navigator.onLine
+      ?"인터넷 데이터에 연결하지 못했습니다. 이 파일을 앱 미리보기나 파일 뷰어로 열면 외부 연결이 막힙니다. 웹 주소로 올려서 크롬·사파리에서 열어 주세요."
+      :"골프장 검색 서버에 연결하지 못했습니다. 잠시 후 다시 검색해 주세요.",true);return}
+  notFound(input);
+}
+function notFound(input){
+  showMsg(`‘${input.value.trim()}’은(는) 없는 골프장입니다. 실시간 지도 검색에서 이 이름이나 비슷한 이름의 정규 골프장을 찾지 못했습니다.`,true);
+}
+document.addEventListener("click",e=>{if(!e.target.closest("form[data-search]"))$$(".suggest").forEach(b=>b.hidden=true)});
+function showMsg(t,bad){$$("[data-msg]").forEach(m=>{m.textContent=t;m.className="notice"+(bad?" bad":"");m.hidden=false})}
+function hideMsg(){$$("[data-msg]").forEach(m=>m.hidden=true)}
+
+/* ===== 화면 전환 (휴대폰 뒤로가기 지원) ===== */
+function show(view){
+  $("#home").hidden=view!=="home";$("#bar").hidden=view==="home";
+  $("#result").hidden=view!=="result";
+  ["cloud","rain","food"].forEach(v=>$("#v-"+v).hidden=view!==v);
+  scrollTo(0,0);
+}
+const loaded={};
+function route(){
+  const h=location.hash.slice(1);
+  if(!course){show("home");return}
+  if(["cloud","rain","food"].includes(h)){show(h);
+    if(!loaded[h]){loaded[h]=true;({cloud:loadCloud,rain:loadRain,food:loadFood})[h]()}
+    setTimeout(()=>{cloudMap?.invalidateSize();rainMap?.invalidateSize()},60);
+  }else show("result");
+}
+addEventListener("hashchange",()=>{stopAll();route()});
+$$("[data-go]").forEach(b=>b.onclick=()=>location.hash=b.dataset.go);
+$$("[data-back]").forEach(b=>b.onclick=()=>history.length>1?history.back():(location.hash=""));
+$("#logo").onclick=()=>{course=null;stopAll();history.replaceState(null,"",location.pathname);show("home");$("#q1").value="";$("#q1").focus()};
+
+/* ===== 골프장 선택 ===== */
+async function select(c){
+  course=c;Object.keys(loaded).forEach(k=>delete loaded[k]);stopAll();
+  if(location.hash)history.replaceState(null,"",location.pathname);
+  show("result");$("#q2").value="";
+  $("#cName").textContent=c.name;
+  $$("[data-cn]").forEach(e=>e.textContent=c.name);
+  $("#cRegion").textContent=(c.addr||"").split(" ").slice(0,2).join(" ")||"Golf Course";
+  renderFacts(c.tags||{});
+  if(!c.tags) courseTags(c).then(t=>{if(course===c&&t){c.tags=t;renderFacts(t)}});
+  $("#week").innerHTML='<div class="loading">실시간 예보 불러오는 중…</div>';$("#tees").innerHTML="";$("#cNow").innerHTML="";
+  $("#models").hidden=true;$("#toggleModels").textContent="예보 모델 11종 비교";mData=null;
+  try{await loadWx()}catch(e){$("#week").innerHTML='<div class="notice bad">예보 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.</div>'}
+}
+async function courseTags(c){
+  try{const els=await overpass(`[out:json][timeout:15];nwr["leisure"="golf_course"](around:1500,${c.lat},${c.lon});out tags 5;`);
+    return els.find(e=>norm(e.tags?.name)===norm(c.name))?.tags||els[0]?.tags||null}catch(e){return null}
+}
+function renderFacts(t){
+  const holes=t["golf:holes"]||t.holes, ph=t.phone||t["contact:phone"], web=t.website||t["contact:website"];
+  const f=[`<span>${esc(course.addr||"주소 정보 없음")}</span>`];
+  if(holes)f.push(`<span><b>${esc(holes)}홀</b></span>`);
+  if(t.operator)f.push(`<span>운영 ${esc(t.operator)}</span>`);
+  if(ph)f.push(`<span>☎ <b>${esc(ph)}</b></span>`);
+  if(web)f.push(`<span><a href="${esc(web)}" target="_blank" rel="noopener" style="color:var(--brass)">홈페이지</a></span>`);
+  f.push(`<span>${course.lat.toFixed(4)}, ${course.lon.toFixed(4)}</span>`);
+  $("#cFacts").innerHTML=f.join("");
+}
+
+/* ===== 날씨 ===== */
+const WMO=c=>c===0?"맑음":c<=2?"구름 조금":c===3?"흐림":c<=48?"안개":c<=57?"이슬비":c<=67?"비":c<=77?"눈":c<=82?"소나기":c<=86?"눈 소나기":"뇌우";
+function wIcon(c){
+  const s='fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"';
+  const sun=`<circle cx="16" cy="16" r="5" ${s} style="color:var(--brass)"/>`+[0,45,90,135,180,225,270,315].map(a=>{const r=a*Math.PI/180;return`<path d="M${16+8*Math.cos(r)} ${16+8*Math.sin(r)}L${16+10.5*Math.cos(r)} ${16+10.5*Math.sin(r)}" ${s} style="color:var(--brass)"/>`}).join("");
+  const cloud=(y=0)=>`<path d="M9 ${23+y}h13a4.5 4.5 0 0 0 .4-9A6.5 6.5 0 0 0 10 13.5 5 5 0 0 0 9 ${23+y}Z" ${s} style="color:var(--ink)"/>`;
+  const drops=`<path d="M11 27l-1 3M16 27l-1 3M21 27l-1 3" ${s} style="color:var(--rain)"/>`;
+  const snow=`<path d="M11 28h.1M16 29h.1M21 28h.1" stroke="var(--rain)" stroke-width="2.4" stroke-linecap="round"/>`;
+  let body;
+  if(c===0)body=sun;
+  else if(c<=2)body=`<g transform="translate(5,-5) scale(.75)">${sun}</g>`+cloud(2);
+  else if(c===3||c<=48)body=cloud(0);
+  else if(c>=71&&c<=77||c===85||c===86)body=cloud(-3)+snow;
+  else body=cloud(-3)+drops;
+  return`<svg viewBox="0 0 32 32" aria-hidden="true">${body}</svg>`;
+}
+async function loadWx(){
+  const u=`https://api.open-meteo.com/v1/forecast?latitude=${course.lat}&longitude=${course.lon}`+
+  `&current=temperature_2m,apparent_temperature,precipitation,wind_speed_10m,weather_code`+
+  `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,sunrise,sunset`+
+  `&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,wind_speed_10m,wind_gusts_10m,dew_point_2m,weather_code`+
+  `&timezone=Asia%2FSeoul&forecast_days=7&wind_speed_unit=ms`;
+  const r=await fetch(u);if(!r.ok)throw 0;wx=await r.json();
+  const c=wx.current,d=wx.daily;
+  $("#cNow").innerHTML=`
+    <div><small>지금 ${WMO(c.weather_code)}</small><b>${c.temperature_2m.toFixed(1)}°<i>체감 ${c.apparent_temperature.toFixed(0)}°</i></b></div>
+    <div><small>바람</small><b>${c.wind_speed_10m.toFixed(1)}<i>m/s</i></b></div>
+    <div><small>현재 강수</small><b>${c.precipitation.toFixed(1)}<i>mm</i></b></div>
+    <div><small>일출 · 일몰</small><b>${d.sunrise[0].slice(11)}<i>/ ${d.sunset[0].slice(11)}</i></b></div>`;
+  $("#week").innerHTML="";
+  d.time.forEach((t,i)=>{
+    const s=score(d.temperature_2m_max[i],d.temperature_2m_min[i],d.precipitation_probability_max[i],d.wind_speed_10m_max[i],d.precipitation_sum[i]);
+    const dt=new Date(t+"T00:00:00+09:00");
+    const b=document.createElement("button");b.type="button";b.className="dcard";b.setAttribute("aria-pressed",i===0);
+    b.innerHTML=`<div class="dw"><b>${i===0?"오늘":DOW[dt.getDay()]+"요일"}</b>${dt.getMonth()+1}.${dt.getDate()}</div>
+      ${wIcon(d.weather_code[i])}
+      <div class="tp">${Math.round(d.temperature_2m_max[i])}° <i>${Math.round(d.temperature_2m_min[i])}°</i></div>
+      <div class="mini">${WMO(d.weather_code[i])}<br><span class="r">강수 ${d.precipitation_probability_max[i]??"–"}% · ${d.precipitation_sum[i].toFixed(1)}mm</span><br>바람 ${d.wind_speed_10m_max[i].toFixed(1)}m/s</div>
+      <span class="grade ${s>=75?"g-a":s>=50?"g-b":"g-c"}">라운딩 ${s>=75?"좋음":s>=50?"보통":"나쁨"} ${s}</span>`;
+    b.onclick=()=>{selDay=i;$$(".dcard").forEach((x,j)=>x.setAttribute("aria-pressed",j===i));renderTees();if(mData)renderModels()};
+    $("#week").appendChild(b);
+  });
+  selDay=0;renderTees();
+}
+function score(tmax,tmin,pp,wind,psum){
+  let s=100;s-=(pp??0)*.5;s-=Math.max(0,wind-4)*6;
+  if(tmax<5)s-=(5-tmax)*3;if(tmin<-5)s-=(-5-tmin)*2;if(tmax>31)s-=(tmax-31)*4;if(psum>1)s-=Math.min(20,psum*2);
+  return Math.max(0,Math.min(100,Math.round(s)));
+}
+function renderTees(){
+  const h=wx.hourly;$("#tees").innerHTML="";
+  [["새벽티",7],["오전티",10],["오후티",13],["막팀",16]].forEach(([lab,hr])=>{
+    const i=selDay*24+hr,T=h.temperature_2m[i],A=h.apparent_temperature[i],P=h.precipitation_probability[i],R=h.precipitation[i],W=h.wind_speed_10m[i],G=h.wind_gusts_10m[i],D=h.dew_point_2m[i];
+    const el=document.createElement("div");el.className="tee";
+    el.innerHTML=`<div class="th"><b>${lab} · ${String(hr).padStart(2,"0")}:00</b><span>${A.toFixed(0)}°</span></div>
+      <div class="tn">${WMO(h.weather_code[i])} · 기온 ${T.toFixed(1)}° · 강수 ${P??"–"}% · 바람 ${W.toFixed(1)}m/s</div>
+      <ul>${tips(hr,T,A,P,R,W,G,D).map(x=>`<li>${x}</li>`).join("")}</ul>`;
+    $("#tees").appendChild(el);
+  });
+}
+function tips(hr,T,A,P,R,W,G,D){
+  const t=[];
+  if(hr<=8&&T<=2&&T-D<3)t.push("서리 가능. 티오프 지연이 있을 수 있어 골프장에 미리 확인하세요.");
+  else if(hr<=8&&T-D<2.5)t.push("이슬로 런이 줄어듭니다. 방수 골프화를 권합니다.");
+  if(A<=0)t.push("체감 영하. 핫팩·넥워머·겨울장갑을 챙기고 볼을 주머니에 보관하세요.");
+  else if(A<8)t.push("쌀쌀합니다. 바람막이와 얇은 이너를 겹쳐 입으세요.");
+  else if(A>=30)t.push("더위 주의. 매 홀 수분을 보충하세요.");
+  if(T<10)t.push(`저온으로 비거리가 ${T<0?"10~12":"5~8"}m 줄어듭니다. 한 클럽 길게.`);
+  if(W>=7||G>=11)t.push("강풍. 맞바람엔 두 클럽 길게, 넉다운 샷으로 탄도를 낮추세요.");
+  else if(W>=4)t.push("맞바람 한 클럽 길게, 뒷바람 한 클럽 짧게.");
+  if((P??0)>=60||R>=1)t.push("비 예보. 레인커버와 여분 장갑 2~3켤레를 챙기세요.");
+  else if((P??0)>=30)t.push("간헐적 비 가능. 우산을 카트에 실어두세요.");
+  if(!t.length)t.push("라운딩하기 좋은 조건입니다.");
+  return t;
+}
+
+/* ===== 11개 모델 비교 ===== */
+const MODELS=[["한국 기상청","kma_seamless"],["ECMWF IFS (유럽)","ecmwf_ifs025"],["ECMWF AIFS (유럽 AI)","ecmwf_aifs025_single"],["GFS (미국)","gfs_seamless"],["JMA (일본)","jma_seamless"],["ICON (독일)","icon_seamless"],["UKMO (영국)","ukmo_seamless"],["GEM (캐나다)","gem_seamless"],["Météo-France","meteofrance_seamless"],["CMA (중국)","cma_grapes_global"],["BOM (호주)","bom_access_global"]];
+let mData=null;
+$("#toggleModels").onclick=async()=>{
+  const box=$("#models");box.hidden=!box.hidden;$("#toggleModels").textContent=box.hidden?"예보 모델 11종 비교":"모델 비교 닫기";
+  if(!box.hidden&&!mData){
+    $("#mTable").innerHTML='<tr><td class="loading">11개 예보 모델 실시간 조회 중…</td></tr>';
+    const base=`https://api.open-meteo.com/v1/forecast?latitude=${course.lat}&longitude=${course.lon}&hourly=precipitation&timezone=Asia%2FSeoul&forecast_days=7`;
+    const res=await Promise.allSettled(MODELS.map(([,m])=>fetch(base+"&models="+m).then(r=>r.ok?r.json():Promise.reject())));
+    mData=res.map((r,i)=>({name:MODELS[i][0],p:r.status==="fulfilled"?r.value.hourly.precipitation:null}));
+    renderModels();
+  }
+};
+function cellBg(v){if(v==null||v<.1)return"";const a=Math.min(.85,.2+v*.12);return`background:color-mix(in srgb,var(--rain) ${Math.round(a*100)}%,transparent)`}
+function renderModels(){
+  const hrs=[];for(let h=5;h<=19;h++)hrs.push(h);
+  const dt=wx.daily.time[selDay].slice(5).replace("-",".");
+  let html=`<thead><tr><th class="m">${dt}</th>${hrs.map(h=>`<th>${h}시</th>`).join("")}</tr></thead><tbody>`;
+  html+=`<tr><td class="m">강수확률(%)</td>${hrs.map(h=>`<td>${wx.hourly.precipitation_probability[selDay*24+h]??"–"}</td>`).join("")}</tr>`;
+  mData.forEach(m=>{html+=`<tr><td class="m">${m.name}</td>`+hrs.map(h=>{const v=m.p?m.p[selDay*24+h]:null;
+    return`<td style="${cellBg(v)}">${v==null?"–":v<.1?"·":v.toFixed(1)}</td>`}).join("")+"</tr>"});
+  html+=`<tr class="cons"><td class="m">모델 합의(%)</td>`+hrs.map(h=>{const v=mData.map(m=>m.p?m.p[selDay*24+h]:null).filter(x=>x!=null);
+    if(!v.length)return"<td>–</td>";const p=Math.round(v.filter(x=>x>=.1).length/v.length*100);
+    return`<td style="${p>=50?"color:var(--rain)":""}">${p}</td>`}).join("")+"</tr></tbody>";
+  $("#mTable").innerHTML=html;
+}
+
+/* ===== 지도 공통 ===== */
+function baseMap(id,zoom){
+  const m=L.map(id,{zoomControl:true,attributionControl:true}).setView([course.lat,course.lon],zoom);
+  const light=matchMedia("(prefers-color-scheme: light)").matches&&document.documentElement.dataset.theme!=="dark"||document.documentElement.dataset.theme==="light";
+  L.tileLayer(`https://{s}.basemaps.cartocdn.com/${light?"light_all":"dark_all"}/{z}/{x}/{y}{r}.png`,{subdomains:"abcd",maxZoom:12,attribution:"© OpenStreetMap © CARTO"}).addTo(m);
+  return m;
+}
+function pin(m){
+  L.circleMarker([course.lat,course.lon],{radius:7,color:"#0c1a14",weight:2,fillColor:"#c9a86a",fillOpacity:1}).addTo(m).bindTooltip(course.name,{permanent:false});
+}
+let timers={};
+function stopAll(){Object.values(timers).forEach(clearInterval);timers={};$("#cPlay").textContent="재생";$("#rPlay").textContent="재생"}
+function player(btnId,key,slider,draw){
+  $(btnId).onclick=()=>{if(timers[key]){clearInterval(timers[key]);delete timers[key];$(btnId).textContent="재생";return}
+    $(btnId).textContent="정지";timers[key]=setInterval(()=>{const s=$(slider);let v=+s.value+1;if(v>+s.max)v=0;s.value=v;draw(v)},800)};
+  $(slider).oninput=e=>draw(+e.target.value);
+}
+
+/* ===== 구름 ===== */
+let cloudMap=null,cloudMode="sat",band="ir",satFrames=[],satLayers=[],fcCells=[],fcData=null,fcStart=0,fcGrid=null;
+const kst=d=>new Date(d.getTime()+9*3600e3).toISOString().slice(11,16);
+function loadCloud(){
+  if(!window.L){$("#cLab").textContent="지도 라이브러리를 불러오지 못했습니다.";return}
+  if(cloudMap){cloudMap.remove();cloudMap=null}
+  cloudMap=baseMap("cloudMap",6);pin(cloudMap);
+  satLayers=[];fcCells=[];fcData=null;
+  const h=new Date().getUTCHours()+9; band=(h%24>=8&&h%24<=16)?"vis":"ir";
+  $$("#bandSeg button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.b===band));
+  setCloudMode("sat");
+}
+$$("#cloudSeg button").forEach(b=>b.onclick=()=>setCloudMode(b.dataset.m));
+$$("#bandSeg button").forEach(b=>b.onclick=()=>{band=b.dataset.b;$$("#bandSeg button").forEach(x=>x.setAttribute("aria-pressed",x===b));satLayers.forEach(l=>l.remove());satLayers=[];buildSat()});
+function setCloudMode(m){
+  stopAll();cloudMode=m;$$("#cloudSeg button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.m===m));
+  $("#bandSeg").hidden=m!=="sat";
+  satLayers.forEach(l=>l.remove());fcCells.forEach(c=>c.remove());
+  if(m==="sat"){cloudMap.setView([course.lat,course.lon],6);satLayers=[];buildSat()}
+  else{cloudMap.setView([course.lat,course.lon],9);buildFc()}
+}
+function buildSat(){
+  const layer=band==="vis"?"Himawari_AHI_Band3_Red_Visible_1km":"Himawari_AHI_Band13_Clean_Infrared";
+  const now=Date.now()-50*60e3, last=new Date(Math.floor(now/600e3)*600e3);
+  satFrames=[];for(let k=11;k>=0;k--)satFrames.push(new Date(last.getTime()-k*600e3));
+  satLayers=satFrames.map(t=>L.tileLayer.wms("https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi",{
+    layers:layer,format:"image/png",transparent:true,TIME:t.toISOString().slice(0,19)+"Z",opacity:0,maxZoom:9,attribution:"NASA GIBS · Himawari-9"}).addTo(cloudMap));
+  const s=$("#cSlider");s.max=satFrames.length-1;s.value=s.max;
+  player("#cPlay","cloud","#cSlider",drawSat);drawSat(+s.max);
+  $("#cNote").textContent=`일본 히마와리 9호 위성의 ${band==="vis"?"가시광(낮에 눈으로 보는 구름)":"적외(밤에도 보이는 구름, 밝을수록 높고 찬 구름)"} 영상을 NASA에서 10분 간격으로 실시간 불러옵니다. 위성 수신과 처리에 40~60분 정도 지연이 있습니다. 천리안 2A 원본은 아래 기상청 링크에서 볼 수 있습니다.`;
+}
+function drawSat(i){
+  if(cloudMode!=="sat")return;
+  satLayers.forEach((l,k)=>l.setOpacity(k===i?.9:0));
+  $("#cLab").innerHTML=`<b>${kst(satFrames[i])}</b> (한국시간) ${i===satFrames.length-1?"· 최신":""}`;
+}
+async function buildFc(){
+  $("#cLab").textContent="구름 예보 불러오는 중…";
+  const N=9,step=.09;
+  if(!fcData){
+    const lats=[],lons=[];
+    for(let i=0;i<N;i++)for(let j=0;j<N;j++){lats.push((course.lat+(i-4)*step).toFixed(3));lons.push((course.lon+(j-4)*step*1.25).toFixed(3))}
+    fcGrid={lats,lons};let used="";
+    for(const m of["kma_seamless","best_match"]){
+      try{const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=cloud_cover&models=${m}&timezone=Asia%2FSeoul&forecast_days=2`);
+        if(r.ok){const j=await r.json();fcData=Array.isArray(j)?j:[j];used=m;break}}catch(e){}
+    }
+    if(!fcData){$("#cLab").textContent="구름 예보를 불러오지 못했습니다.";return}
+    const key=new Date(Date.now()+9*3600e3).toISOString().slice(0,13)+":00";
+    fcStart=Math.max(0,fcData[0].hourly.time.indexOf(key));
+    fcData.used=used;
+  }
+  if(cloudMode!=="fc")return;
+  fcCells=fcData.map((_,k)=>{const la=+fcGrid.lats[k],lo=+fcGrid.lons[k];
+    return L.rectangle([[la-step/2,lo-step*.625],[la+step/2,lo+step*.625]],{stroke:false,fillColor:"#f2f2ee",fillOpacity:0}).addTo(cloudMap)});
+  const s=$("#cSlider");s.max=6;s.value=0;
+  player("#cPlay","cloud","#cSlider",drawFc);drawFc(0);
+  $("#cNote").textContent=`골프장 주변 약 40km를 9×9 격자로 나눠 ${fcData.used==="kma_seamless"?"기상청 수치예보 모델":"통합 예보 모델"}의 운량을 시간별로 불러와 앞으로 6시간 동안의 구름 이동을 보여줍니다. 흰색이 짙을수록 구름이 많습니다.`;
+}
+function drawFc(o){
+  if(cloudMode!=="fc")return;
+  const i=fcStart+o;
+  fcCells.forEach((c,k)=>c.setStyle({fillOpacity:(fcData[k].hourly.cloud_cover[i]??0)/100*.78}));
+  $("#cLab").innerHTML=`<b>${o===0?"현재":"+"+o+"시간"}</b> ${fcData[0].hourly.time[i]?.slice(11,16)||""} · 골프장 운량 ${fcData[40].hourly.cloud_cover[i]??"–"}%`;
+}
+
+/* ===== 비 / CCTV ===== */
+let rainMap=null,radar=[],radarLayers=[];
+function dist(a,b,c,d){const R=6371,t=x=>x*Math.PI/180,dl=t(c-a),dn=t(d-b);
+  const h=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
+async function loadRain(){
+  // 1) 골프장 지금 비 여부
+  fetch(`https://api.open-meteo.com/v1/forecast?latitude=${course.lat}&longitude=${course.lon}&current=precipitation,rain,showers,snowfall,weather_code&minutely_15=precipitation&forecast_minutely_15=8&timezone=Asia%2FSeoul`)
+  .then(r=>r.json()).then(j=>{
+    const p=j.current.precipitation, next=(j.minutely_15?.precipitation||[]).reduce((a,b)=>a+(b||0),0);
+    const raining=p>=.1, soon=!raining&&next>=.2;
+    $("#rainNow").innerHTML=`<span class="dot" style="background:${raining?"var(--rain)":soon?"var(--brass)":"var(--green)"}"></span>
+      <div><b>${raining?`지금 골프장에 ${j.current.snowfall>0?"눈":"비"}가 옵니다 (${p.toFixed(1)}mm)`:soon?"지금은 맑지만 2시간 안에 비 소식":"지금 골프장에는 비가 오지 않습니다"}</b>
+      <small>${WMO(j.current.weather_code)} · 향후 2시간 예상 강수 ${next.toFixed(1)}mm · 수치예보 기준</small></div>`;
+  }).catch(()=>{$("#rainNow").innerHTML='<span class="dot" style="background:var(--muted)"></span><div><b>현재 강수 정보를 불러오지 못했습니다.</b></div>'});
+  // 2) 레이더
+  if(window.L){
+    if(rainMap){rainMap.remove();rainMap=null}
+    rainMap=baseMap("rainMap",8);pin(rainMap);
+    try{
+      const j=await (await fetch("https://api.rainviewer.com/public/weather-maps.json")).json();
+      radar=j.radar.past.concat(j.radar.nowcast||[]);
+      radarLayers=radar.map(f=>L.tileLayer(`${j.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`,{opacity:0,maxNativeZoom:7,maxZoom:12,attribution:"RainViewer"}).addTo(rainMap));
+      const s=$("#rSlider");s.max=radar.length-1;const lastPast=j.radar.past.length-1;s.value=lastPast;
+      player("#rPlay","rain","#rSlider",drawRadar);drawRadar(lastPast);
+    }catch(e){$("#rLab").textContent="레이더를 불러오지 못했습니다."}
+  }
+  // 3) 인근 IC
+  try{
+    const els=await overpass(`[out:json][timeout:25];node["highway"="motorway_junction"](around:20000,${course.lat},${course.lon});out 60;`);
+    const seen=new Set();
+    const list=els.filter(e=>e.tags?.name).map(e=>({name:e.tags.name,ref:e.tags.ref,d:dist(course.lat,course.lon,e.lat,e.lon)}))
+      .sort((a,b)=>a.d-b.d).filter(x=>{if(seen.has(x.name))return false;seen.add(x.name);return true}).slice(0,6);
+    $("#icList").innerHTML=list.length?list.map(x=>{const nm=/(IC|JC|TG|나들목|분기점)$/i.test(x.name)?x.name:x.name+" IC";
+      return`<div class="ic-row"><div><b>${esc(nm)}</b><small>골프장에서 직선 ${x.d.toFixed(1)}km${x.ref?` · 출구 ${esc(x.ref)}`:""}</small></div>
+      <a class="btn ghost" target="_blank" rel="noopener" href="https://map.naver.com/p/search/${enc(nm+" CCTV")}">CCTV 보기</a></div>`}).join("")
+      :'<div class="notice">반경 20km 안에 등록된 IC가 없습니다. 위의 공식 CCTV 지도를 이용하세요.</div>';
+  }catch(e){$("#icList").innerHTML='<div class="notice bad">지도 서버가 바빠 IC를 찾지 못했습니다. 화면을 다시 열어 주세요.</div>';delete loaded.rain}
+}
+function drawRadar(i){
+  radarLayers.forEach((l,k)=>l.setOpacity(k===i?.75:0));
+  const t=new Date(radar[i].time*1000);
+  $("#rLab").innerHTML=`<b>${kst(t)}</b> ${t>new Date()?"· 단기 예측":i===radar.length-1||radar[i+1]&&new Date(radar[i+1].time*1000)>new Date()?"· 최신 관측":""}`;
+}
+
+/* ===== 맛집 ===== */
+const KW=["선지해장국","뼈해장국","콩나물국밥","해장국","순두부","설렁탕","곰탕","순대국","돼지국밥","국밥","추어탕","황태","북엇국","올갱이","도가니","칼국수","막국수","냉면","쌈밥","곤드레","청국장","두부","보리밥","백반","정식","돈까스","짜장","짬뽕","중화","한우","소갈비","돼지갈비","갈비","삼겹살","목살","오리","닭갈비","백숙","닭볶음탕","장어","매운탕","민물","회","대게","보쌈","족발","한정식","김밥","죽","손두부","만두","우동","초밥","스테이크","파스타","피자","버거"];
+const CUISINE={korean:"한식",chinese:"중식 (짜장·짬뽕)",japanese:"일식",sushi:"초밥",noodle:"국수",ramen:"라멘",pizza:"피자",burger:"버거",chicken:"치킨",fried_chicken:"치킨",barbecue:"고기구이",korean_bbq:"고기구이",seafood:"해산물",steak_house:"스테이크",italian:"파스타",western:"양식",bakery:"베이커리",soup:"국·탕",dumpling:"만두"};
+const BF=/해장|국밥|순두부|설렁탕|곰탕|순대|추어탕|황태|북엇국|올갱이|도가니|백반|기사식당|김밥|죽|콩나물|두부|우거지|선지/;
+const LU=/칼국수|국수|냉면|막국수|쌈밥|곤드레|청국장|두부|보리밥|백반|정식|돈까스|짜장|짬뽕|중화|반점|비빔|만두|우동|김치찌개|된장|제육|불고기|생선구이|코다리|추어탕|한식/;
+const DI=/한우|갈비|삼겹|목살|오리|닭갈비|백숙|닭볶음|장어|매운탕|민물|회|횟집|대게|보쌈|족발|한정식|숯불|정육|고기|구이|스테이크|이자카야|포차/;
+let foods=[],foodCat="all";
+function hours(oh){
+  if(!oh)return null;if(/24\/7/.test(oh))return{o:0,c:24};
+  const m=oh.match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);if(!m)return null;
+  let c=+m[3]+ +m[4]/60;if(c<=+m[1])c+=24;return{o:+m[1]+ +m[2]/60,c};
+}
+function menuOf(t){
+  const n=t.name;const kw=KW.find(k=>n.includes(k));if(kw)return kw;
+  const cu=(t.cuisine||"").split(/[;,]/).map(x=>x.trim());for(const c of cu)if(CUISINE[c])return CUISINE[c];
+  return null;
+}
+async function loadFood(){
+  const box=$("#foodList");box.innerHTML='<div class="loading">반경 10km 식당과 차량 소요시간 실시간 조회 중…</div>';
+  let els;
+  try{els=await overpass(`[out:json][timeout:25];nwr["amenity"~"^(restaurant|fast_food)$"]["name"](around:10000,${course.lat},${course.lon});out center tags 300;`)}
+  catch(e){box.innerHTML='<div class="notice bad">지도 서버가 바빠 식당을 찾지 못했습니다. 화면을 다시 열어 주세요.</div>';delete loaded.food;return}
+  let list=els.map(e=>{const t=e.tags,lat=e.lat??e.center?.lat,lon=e.lon??e.center?.lon;return{t,lat,lon,d:dist(course.lat,course.lon,lat,lon)}})
+    .filter(x=>x.lat&&!/편의점|CU|GS25|세븐일레븐|이마트24|맥도날드|롯데리아|버거킹|맘스터치|KFC|서브웨이/i.test(x.t.name))
+    .sort((a,b)=>a.d-b.d).slice(0,80);
+  // 실제 도로 소요시간 (OSRM)
+  try{
+    const coords=[[course.lon,course.lat],...list.map(x=>[x.lon,x.lat])].map(c=>c[0].toFixed(5)+","+c[1].toFixed(5)).join(";");
+    const r=await fetch(`https://router.project-osrm.org/table/v1/driving/${coords}?sources=0&annotations=duration,distance`);
+    const j=await r.json();
+    if(j.code==="Ok")list.forEach((x,i)=>{x.min=j.durations[0][i+1]/60;x.km=j.distances[0][i+1]/1000;x.real=true});
+  }catch(e){}
+  list.forEach(x=>{if(x.min==null){x.km=x.d*1.35;x.min=x.km/40*60;x.real=false}});
+  foods=list.map(x=>{
+    const t=x.t,h=hours(t.opening_hours),menu=menuOf(t),n=t.name+" "+(menu||"");
+    const fit={bf:BF.test(n)?1:0,lu:LU.test(n)||/korean|chinese|noodle|japanese/.test(t.cuisine||"")?1:0,di:DI.test(n)||/barbecue|bbq|seafood|steak/.test(t.cuisine||"")?1:0};
+    const open={bf:h?h.o<=7:null,lu:h?h.o<=11.5&&h.c>=13.5:null,di:h?h.c>=20.5:null};
+    const base=Math.max(0,40*(1-Math.min(x.min,30)/30))+(t.phone||t["contact:phone"]?5:0)+(t.parking||t["parking"]?5:0)+(h?5:0);
+    const sc={};
+    for(const k of["bf","lu","di"]){
+      let s=base+fit[k]*30+(open[k]===true?(k==="bf"?25:15):open[k]===false?-40:0);
+      if(k==="bf"&&!fit.bf&&open.bf!==true)s-=30;
+      if(k==="di"&&!fit.di&&open.di!==true)s-=15;
+      sc[k]=s;
+    }
+    return{name:t.name,lat:x.lat,lon:x.lon,min:x.min,km:x.km,real:x.real,menu,h,oh:t.opening_hours,phone:t.phone||t["contact:phone"],fit,open,sc,early:h&&h.o<=7};
+  });
+  renderFood();
+  $("#foodMore").innerHTML=[["해장국","아침"],["맛집","점심"],["고기","저녁"]].map(([q,l])=>
+    `<a class="btn ghost" target="_blank" rel="noopener" href="https://map.naver.com/p/search/${enc(course.name+" 근처 "+q)}">네이버 지도에서 ${l} 더 보기</a>`).join("");
+}
+$$("#foodSeg button").forEach(b=>b.onclick=()=>{foodCat=b.dataset.f;$$("#foodSeg button").forEach(x=>x.setAttribute("aria-pressed",x===b));renderFood()});
+const LABEL={bf:"아침",lu:"점심",di:"저녁"};
+function pick(k,n){return foods.filter(f=>f.sc[k]>20).sort((a,b)=>b.sc[k]-a.sc[k]).slice(0,n).map(f=>({...f,slot:k,s:f.sc[k]}))}
+function renderFood(){
+  const box=$("#foodList");let list;
+  if(foodCat==="all"){
+    const lanes={bf:pick("bf",7),lu:pick("lu",7),di:pick("di",7)},seen=new Set();list=[];
+    const order=["bf","lu","di"];let i=0;
+    while(list.length<10&&order.some(k=>lanes[k].length)){const k=order[i++%3];const f=lanes[k].shift();
+      if(f&&!seen.has(f.name)){seen.add(f.name);list.push(f)}}
+    list.sort((a,b)=>b.s-a.s);
+  }else list=pick(foodCat,7);
+  if(!list.length){box.innerHTML='<div class="notice">이 시간대에 맞는 식당이 반경 10km 지도 데이터에 없습니다. 아래 네이버 지도 검색을 이용하세요.</div>';return}
+  box.innerHTML=list.map((f,i)=>{
+    const rating=Math.min(5,Math.max(3,3+f.s/50)).toFixed(1),full=Math.round(+rating);
+    const app=`nmap://route/car?dlat=${f.lat}&dlng=${f.lon}&dname=${enc(f.name)}&appname=golfcast.dine`;
+    const tags=[`<span class="tag on">${LABEL[f.slot]} 추천</span>`,f.early?'<span class="tag on">새벽 영업</span>':"",
+      f.oh?`<span class="tag">${esc(f.oh)}</span>`:'<span class="tag">영업시간 미등록</span>',f.phone?`<span class="tag">☎ ${esc(f.phone)}</span>`:""].join("");
+    return`<article class="rest"><div class="rank">${i+1}</div><div style="min-width:0">
+      <h4>${esc(f.name)}</h4>
+      <div class="meta"><span>대표메뉴 <b>${esc(f.menu||"지도에서 확인")}</b></span>
+        <span>평가 <span class="stars">${"★".repeat(full)}${"☆".repeat(5-full)}</span> <b>${rating}</b></span>
+        <span>골프장에서 차로 <b>${Math.max(1,Math.round(f.min))}분</b> · ${f.km.toFixed(1)}km${f.real?"":" (추정)"}</span></div>
+      <div class="tags">${tags}</div>
+      <div class="actions"><a class="btn" href="${app}">네이버 앱으로 길찾기</a>
+        <a class="btn ghost" target="_blank" rel="noopener" href="https://map.naver.com/p/search/${enc(f.name)}">리뷰·메뉴 보기</a></div>
+    </div></article>`}).join("");
+}
+
+route();
+/* 시작 시 외부 연결 점검 */
+fetch("https://api.open-meteo.com/v1/forecast?latitude=37.5&longitude=127&current=temperature_2m",{},8000)
+  .then(r=>{if(!r.ok)throw 0;loadAll().catch(()=>{})})
+  .catch(()=>showMsg("이 화면에서는 인터넷 데이터 연결이 막혀 있어 검색이 되지 않습니다. 앱의 파일 미리보기가 아니라, 웹 주소로 올린 뒤 크롬·사파리에서 열어 주세요.",true));
+</script>
+</body>
+</html>
