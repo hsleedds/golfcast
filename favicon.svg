@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="100 56 312 432">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6dc95"/>
+      <stop offset=".5" stop-color="#d4ae5f"/>
+      <stop offset="1" stop-color="#9a7431"/>
+    </linearGradient>
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c6a4e"/>
+      <stop offset="1" stop-color="#123424"/>
+    </linearGradient>
+    <radialGradient id="sunc" cx=".4" cy=".35" r=".7">
+      <stop offset="0" stop-color="#fff0bd"/>
+      <stop offset=".55" stop-color="#e2bd66"/>
+      <stop offset="1" stop-color="#a8802f"/>
+    </radialGradient>
+  </defs>
+
+  <path d="M114 70 H398 V262 C398 374 332 436 256 474 C180 436 114 374 114 262 Z" fill="url(#field)" stroke="url(#gold)" stroke-width="18" stroke-linejoin="round"/>
+  <path d="M133 89 H379 V262 C379 362 320 416 256 450 C192 416 133 362 133 262 Z" fill="none" stroke="#d4ae5f" stroke-opacity=".45" stroke-width="2"/>
+  <g transform="translate(256 156) scale(0.8)">
+    <g fill="url(#gold)" stroke="#6b4f1a" stroke-width="2" stroke-linejoin="round">
+      <path id="ar" d="M-7 -30 L0 -66 L7 -30 Z"/>
+      <use href="#ar" transform="rotate(30)"/><use href="#ar" transform="rotate(60)"/>
+      <use href="#ar" transform="rotate(90)"/><use href="#ar" transform="rotate(120)"/>
+      <use href="#ar" transform="rotate(150)"/><use href="#ar" transform="rotate(180)"/>
+      <use href="#ar" transform="rotate(210)"/><use href="#ar" transform="rotate(240)"/>
+      <use href="#ar" transform="rotate(270)"/><use href="#ar" transform="rotate(300)"/>
+      <use href="#ar" transform="rotate(330)"/>
+      <path id="ar2" d="M-4 -30 L0 -50 L4 -30 Z" transform="rotate(15)"/>
+      <use href="#ar2" transform="rotate(30)"/><use href="#ar2" transform="rotate(60)"/>
+      <use href="#ar2" transform="rotate(90)"/><use href="#ar2" transform="rotate(120)"/>
+      <use href="#ar2" transform="rotate(150)"/><use href="#ar2" transform="rotate(180)"/>
+      <use href="#ar2" transform="rotate(210)"/><use href="#ar2" transform="rotate(240)"/>
+      <use href="#ar2" transform="rotate(270)"/><use href="#ar2" transform="rotate(300)"/>
+      <use href="#ar2" transform="rotate(330)"/>
+    </g>
+    <circle r="31" fill="url(#sunc)" stroke="#6b4f1a" stroke-width="3"/>
+  </g>
+  <!-- 골프채 (왼쪽 위 손잡이 → 오른쪽 아래 헤드) -->
+  <g transform="translate(256 320) rotate(-38) scale(0.78)" stroke="#4d3810" stroke-width="3" stroke-linejoin="round">
+    <rect x="-8" y="-152" width="16" height="50" rx="7" fill="#f3e6c4"/>
+    <path d="M-4 -104 L4 -104 L4 112 L-4 112 Z" fill="url(#gold)"/>
+    <path d="M4 100 L-4 100 L-6 116 L-40 118 Q-56 122 -52 136 Q-49 146 -36 146 L0 146 Q9 145 8 132 Z" fill="url(#gold)"/>
+    <path d="M-44 128 L-2 128" stroke="#6b4f1a" stroke-width="2" fill="none" opacity=".6"/>
+  </g>
+  <!-- 숟가락 (오른쪽 위 머리 → 왼쪽 아래 손잡이) -->
+  <g transform="translate(256 320) rotate(218) scale(0.78)" stroke="#4d3810" stroke-width="3" stroke-linejoin="round">
+    <path d="M-4 -84 L4 -84 L10 126 Q0 144 -10 126 Z" fill="url(#gold)"/>
+    <ellipse cx="0" cy="-116" rx="23" ry="35" fill="url(#gold)"/>
+    <ellipse cx="-5" cy="-122" rx="10" ry="19" fill="#fff3cf" stroke="none" opacity=".55"/>
+  </g>
+  <circle cx="256" cy="418" r="10" fill="#f7f3e8" stroke="#4d3810" stroke-width="3"/>
+</svg>
