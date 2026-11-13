@@ -760,7 +760,13 @@
     el.chips = h('div', { class: 'me-chips' });
     el.mode = h('div', { class: 'me-mode', role: 'radiogroup', 'aria-label': '그린 방식' });
     el.modeAsk = h('div', { class: 'me-modeask', hidden: true });
-    var nav = h('nav', { class: 'me-nav' }, [h('div', { class: 'me-navrow' }, [el.tabs, el.mode]), el.modeAsk, el.chips]);
+    el.par = h('div', { class: 'me-par', role: 'group', 'aria-label': '파' });
+    el.par.appendChild(h('span', { class: 'me-lbl', text: 'PAR' }));
+    PARS.forEach(function (p) { el.par.appendChild(h('button', { type: 'button', class: 'me-parbtn', 'data-par': String(p), text: String(p) })); });
+    el.holeTitle = h('div', { class: 'me-holetitle' });
+    el.parAll = h('button', { type: 'button', class: 'me-parall', 'data-act': 'parall', text: '파 한 번에' });
+    var parRow = h('div', { class: 'me-inforow me-parrow' }, [el.holeTitle, h('div', { class: 'me-parwrap' }, [el.par, el.parAll])]);
+    var nav = h('nav', { class: 'me-nav' }, [h('div', { class: 'me-navrow' }, [el.tabs, el.mode]), el.modeAsk, el.chips, parRow]);
 
     el.mapHost = h('div', { class: 'me-maphost' });
     el.hint = h('div', { class: 'me-hint', 'aria-live': 'polite' });
@@ -785,12 +791,8 @@
     el.clearBtn = h('button', { class: 'me-tool me-t-clear', type: 'button', 'data-act': 'clear' }, [h('span', { class: 'me-glyph', text: '✕' }), h('span', { class: 'me-tl', text: '홀 지우기' })]);
     el.tools.appendChild(el.undoBtn); el.tools.appendChild(el.clearBtn);
 
-    el.par = h('div', { class: 'me-par', role: 'group', 'aria-label': '파' });
-    el.par.appendChild(h('span', { class: 'me-lbl', text: 'PAR' }));
-    PARS.forEach(function (p) { el.par.appendChild(h('button', { type: 'button', class: 'me-parbtn', 'data-par': String(p), text: String(p) })); });
     el.dist = h('div', { class: 'me-dist' });
-    el.holeTitle = h('div', { class: 'me-holetitle' });
-    var info = h('div', { class: 'me-info' }, [h('div', { class: 'me-inforow' }, [el.holeTitle, el.par]), el.dist]);
+    var info = h('div', { class: 'me-info' }, [el.dist]);
     el.greenBar = h('div', { class: 'me-greenbar' });
     var panel = h('section', { class: 'me-panel' }, [el.tools, el.greenBar, info]);
 
@@ -853,7 +855,8 @@
         var len = holeLen(x, 0);
         el.chips.appendChild(h('button', { type: 'button', class: 'me-chip me-st-' + status(x) + (i === S.hi ? ' on' : ''), 'data-hole': String(i), 'aria-label': (i + 1) + '번 홀' }, [
           h('span', { class: 'me-chipn', text: String(x.n) }),
-          h('span', { class: 'me-chipd', text: len != null ? String(Math.round(len)) : (x.par ? 'P' + x.par : '·') })
+          h('span', { class: 'me-chipd', text: len != null ? String(Math.round(len)) : '·' }),
+          h('span', { class: 'me-chipp' + (x.par ? '' : ' me-nopar'), text: x.par ? 'P' + x.par : 'P–' })
         ]));
       });
     }
@@ -1129,6 +1132,36 @@
       var f = box.querySelector('.me-btn-gold') || box.querySelector('button'); if (f) f.focus();
     }
 
+    // 9홀 파를 한 번에: 스코어카드를 보며 차례로 누르기. opts.onPars가 있으면 '스코어카드 파 정보로도 쓰기' 제공
+    function parAllDialog() {
+      var nn = nine(), cur = nn.holes.map(function (x) { return x.par; });
+      var sumEl = h('div', { class: 'me-parsum' });
+      function upd() { var f = cur.filter(function (v) { return v; }).length, t = cur.reduce(function (a, v) { return a + (v || 0); }, 0); sumEl.textContent = f === 9 ? '합계 PAR ' + t : f + '/9 입력 · 합계 ' + t; }
+      var rows = h('div', { class: 'me-pargrid' });
+      cur.forEach(function (v, i) {
+        var row = h('div', { class: 'me-parline' }, [h('span', { class: 'me-parno', text: nn.holes[i].n + '번' })]);
+        PARS.forEach(function (p) {
+          row.appendChild(h('button', { type: 'button', class: 'me-parbtn' + (v === p ? ' on' : ''), text: String(p), on: { click: function () {
+            cur[i] = cur[i] === p ? null : p;
+            Array.prototype.forEach.call(row.querySelectorAll('.me-parbtn'), function (b) { b.classList.toggle('on', +b.textContent === cur[i]); });
+            upd();
+          } } }));
+        });
+        rows.appendChild(row);
+      });
+      upd();
+      function apply() { pushUndo(); nn.holes.forEach(function (x, i) { x.par = cur[i] || null; }); changed(); }
+      var btns = [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '적용', cls: 'me-btn-gold', fn: function () { apply(); toast(nn.name + ' 파를 적용했어요'); } }];
+      if (typeof opts.onPars === 'function') btns.splice(1, 0, { id: 'score', label: '적용 + 스코어카드 파로도 쓰기', fn: function () {
+        if (cur.some(function (v) { return !v; })) { apply(); toast('9홀 파를 모두 입력해야 스코어카드 파로 쓸 수 있어요', 3200); return; }
+        apply();
+        Promise.resolve().then(function () { return opts.onPars({ nine: nn.name, index: S.ni, pars: cur.slice() }); })
+          .then(function (msg) { toast(msg || (nn.name + ' 파를 스코어카드 파 정보에도 반영했어요'), 3200); })
+          .catch(function (e) { toast('스코어카드 파 반영 실패: ' + ((e && e.message) || e || '오류'), 4000); });
+      } });
+      modal('파 한 번에 입력 · ' + nn.name, [h('p', { class: 'me-muted', text: '스코어카드를 보며 1번부터 차례로 누르세요. 다시 누르면 지워져요.' }), rows, sumEl], btns);
+    }
+
     function osmImport() {
       if (el.osmBtn.disabled) return;
       var c = data.center || (map ? map.getCenter() : null);
@@ -1242,6 +1275,7 @@
         if (ni === S.ni) { S.renaming = true; renderTabs(); return; }
         selectHole(ni, 0, true); return;
       }
+      if (act === 'parall') { parAllDialog(); return; }
       if (b.hasAttribute('data-par')) {
         var p = +b.getAttribute('data-par'); pushUndo(); hole().par = hole().par === p ? null : p; changed(); return;
       }

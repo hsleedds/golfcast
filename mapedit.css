@@ -124,11 +124,14 @@
 .me-chips { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 4px; }
 .me-chip {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  height: 44px; border-radius: 10px; border: 1px solid var(--me-line2); background: var(--me-surface);
+  height: 50px; border-radius: 10px; border: 1px solid var(--me-line2); background: var(--me-surface);
   padding: 0; position: relative;
 }
 .me-chipn { font-size: 15px; font-weight: 800; line-height: 1; }
 .me-chipd { font-size: 9.5px; color: var(--me-muted); margin-top: 3px; line-height: 1; font-variant-numeric: tabular-nums; }
+.me-chipp { font-size: 9px; font-weight: 700; color: var(--me-accent); margin-top: 2px; line-height: 1; }
+.me-chipp.me-nopar { color: var(--me-muted); opacity: 0.6; font-weight: 500; }
+.me-chip.on .me-chipp { color: var(--me-accent-ink); }
 .me-chip::after { content: ""; position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: transparent; }
 .me-chip.me-st-part::after { background: var(--me-accent); }
 .me-chip.me-st-done::after { background: var(--me-ok); }
@@ -168,6 +171,15 @@
 .me-inforow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .me-holetitle { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .me-par { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.me-parrow { margin-top: 8px; }
+.me-parwrap { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.me-parall { height: 30px; padding: 0 10px; border-radius: 8px; border: 1px dashed var(--me-accent); background: transparent; color: var(--me-accent); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.me-pargrid { display: grid; gap: 6px; margin: 6px 0; max-height: 55vh; overflow-y: auto; }
+.me-parline { display: grid; grid-template-columns: 44px repeat(4, minmax(0, 1fr)); gap: 6px; align-items: center; }
+.me-parno { font-weight: 700; font-size: 13px; }
+.me-parline .me-parbtn { width: auto; height: 34px; }
+.me-parsum { font-weight: 700; font-size: 13.5px; color: var(--me-accent); margin-top: 4px; }
+@media (max-width: 420px) { .me-parrow { flex-wrap: wrap; } .me-parbtn { width: 30px; } }
 .me-lbl { font-size: 11px; color: var(--me-muted); font-weight: 700; letter-spacing: 0.06em; margin-right: 2px; }
 .me-parbtn {
   width: 34px; height: 30px; border-radius: 8px; border: 1px solid var(--me-line2);
@@ -294,7 +306,7 @@
 
 /* ---------------------------------------------------------- modal */
 .me-modal {
-  position: absolute; inset: 0; z-index: 50; background: rgba(5, 12, 9, 0.55);
+  position: fixed; inset: 0; z-index: 50; background: rgba(5, 12, 9, 0.55);
   display: flex; align-items: flex-end; justify-content: center; padding: 16px;
 }
 @media (min-width: 600px) { .me-modal { align-items: center; } }
