@@ -825,7 +825,7 @@
       clearTimeout(saveTimer);
       saveTimer = setTimeout(function () {
         store(draftKey, JSON.stringify({ savedAt: new Date().toISOString(), data: exportData(data) }));
-        el.sub.textContent = '임시저장됨 ' + new Date().toTimeString().slice(0, 5);
+        el.sub.textContent = '임시저장됨 ' + new Date().toTimeString().slice(0, 5) + (typeof opts.onSave === 'function' ? ' · 서버 저장 전' : ''); el.sub.classList.remove('me-subbad');
       }, opts.autosaveDelay == null ? 500 : opts.autosaveDelay);
     }
     function fmtM(m) { return m == null ? '–' : Math.round(m) + 'm'; }
@@ -1258,7 +1258,13 @@
       if (typeof opts.onSave !== 'function') { toast('기기에 임시저장했어요'); return; }
       el.saveBtn.disabled = true;
       Promise.resolve().then(function () { return opts.onSave(d); })
-        .then(function () { toast('저장했어요'); }, function (e) { toast('저장 실패: ' + (e && e.message || e)); })
+        .then(function (v) {
+          el.sub.textContent = '서버에 저장됨 ' + new Date().toTimeString().slice(0, 5) + (v != null && v !== '' ? ' · 버전 ' + v : '');
+          el.sub.classList.remove('me-subbad'); toast('서버에 저장했어요', 3000);
+        }, function (e) {
+          el.sub.textContent = '서버 저장 실패 · 이 기기에만 임시저장됨'; el.sub.classList.add('me-subbad');
+          toast('저장 실패: ' + (e && e.message || e), 6000);
+        })
         .then(function () { el.saveBtn.disabled = false; });
     }
 
