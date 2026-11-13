@@ -374,13 +374,48 @@
   function emptyNine(name) { var hs = []; for (var i = 1; i <= 9; i++) hs.push(emptyHole(i)); return { name: name, holes: hs }; }
   function normPt(p) { p = P(p); return p ? LL(p.lat, p.lon) : null; }
   function normRing(r) { return Array.isArray(r) ? r.map(P).filter(Boolean).map(function (p) { return [rnd(p.lat), rnd(p.lon)]; }) : null; }
+  /* 투그린: HOLE.greens = [{id:"L",label:"좌",...},{id:"R",label:"우",...}] only when two greens; HOLE.green mirrors greens[0]. */
+  var TWIN = [{ id: 'L', label: '좌' }, { id: 'R', label: '우' }];
+  function normGreen(g) {
+    g = g || {};
+    var o = { front: normPt(g.front), center: normPt(g.center), back: normPt(g.back) };
+    var poly = normRing(g.poly); if (poly && poly.length >= 3) o.poly = poly;
+    return o;
+  }
+  function syncGreen(hl) { // HOLE.green := copy of greens[0]
+    if (!hl.greens) return;
+    var g0 = hl.greens[0];
+    hl.green = { front: g0.front, center: g0.center, back: g0.back };
+    if (g0.poly) hl.green.poly = g0.poly;
+  }
+  function addTwin(hl) { // single green -> 좌 green, empty 우 green
+    if (hl.greens) return false;
+    hl.greens = [copyGreen(hl.green, { id: 'L', label: '좌' }), { id: 'R', label: '우', front: null, center: null, back: null }];
+    syncGreen(hl); return true;
+  }
+  function dropTwin(hl) { if (!hl.greens) return; hl.green = copyGreen(hl.greens[0]); delete hl.greens; }
+  /* club greenMode "one": no hole has greens. "two": every hole has greens unless hole.oneGreen. */
+  function conformHole(hl, mode) {
+    if (mode === 'two') { if (hl.oneGreen) dropTwin(hl); else addTwin(hl); }
+    else { dropTwin(hl); delete hl.oneGreen; }
+  }
+  function G(hl, side) { return hl.greens ? hl.greens[side ? 1 : 0] : hl.green; }
+  function sides(hl) { return hl.greens ? [0, 1] : [0]; }
+  function copyGreen(g, extra) {
+    var o = extra || {};
+    o.front = g.front; o.center = g.center; o.back = g.back;
+    if (g.poly) o.poly = g.poly.map(function (p) { return p.slice(); });
+    return o;
+  }
   function normHole(src, n) {
     var hl = emptyHole(n); if (!src) return hl;
     hl.par = PARS.indexOf(+src.par) >= 0 ? +src.par : null;
     hl.tees = (src.tees || []).map(function (t, i) { var p = normPt(t); return p && { lat: p.lat, lon: p.lon, label: String(t.label || TEE_LABELS[i] || ('티' + (i + 1))) }; }).filter(Boolean);
-    var g = src.green || {};
-    hl.green = { front: normPt(g.front), center: normPt(g.center), back: normPt(g.back) };
-    var poly = normRing(g.poly); if (poly && poly.length >= 3) hl.green.poly = poly;
+    hl.green = normGreen(src.green);
+    if (Array.isArray(src.greens) && src.greens.length >= 2) {
+      hl.greens = [0, 1].map(function (i) { var sg = src.greens[i] || {}, g = normGreen(sg); g.id = TWIN[i].id; g.label = String(sg.label || TWIN[i].label); return g; });
+      syncGreen(hl);
+    }
     hl.path = normRing(src.path) || [];
     hl.hazards = (src.hazards || []).map(function (z) {
       if (!z || !HZ[z.type]) return null;
@@ -388,11 +423,12 @@
       var p = normPt(z.pt); return p ? { type: z.type, pt: p } : null;
     }).filter(Boolean);
     hl.src = src.src === 'osm' ? 'osm' : 'user';
+    if (src.oneGreen === true) hl.oneGreen = true;
     return hl;
   }
   function normalize(d, o) {
     d = d || {}; o = o || {};
-    var out = { v: 1, club: String(d.club || o.club || ''), center: normPt(d.center) || normPt(o.center) || null, updated: d.updated || new Date().toISOString(), nines: [] };
+    var out = { v: 1, club: String(d.club || o.club || ''), greenMode: d.greenMode === 'two' ? 'two' : 'one', center: normPt(d.center) || normPt(o.center) || null, updated: d.updated || new Date().toISOString(), nines: [] };
     var nines = Array.isArray(d.nines) && d.nines.length ? d.nines : (o.nineNames || ['OUT', 'IN']).map(function (n) { return { name: n }; });
     nines.forEach(function (nn, ni) {
       var srcH = Array.isArray(nn.holes) ? nn.holes : [], holes = [];
@@ -400,43 +436,51 @@
         var s = srcH.filter(function (x) { return x && +x.n === i; })[0] || (srcH[i - 1] && srcH[i - 1].n == null ? srcH[i - 1] : null);
         holes.push(normHole(s, i));
       }
+      holes.forEach(function (hl) { conformHole(hl, out.greenMode); });
       out.nines.push({ name: String(nn.name || ('코스' + (ni + 1))), holes: holes });
     });
     return out;
   }
   function exportData(d) {
     return {
-      v: 1, club: d.club, center: d.center ? { lat: d.center.lat, lon: d.center.lon } : null, updated: d.updated,
+      v: 1, club: d.club, greenMode: d.greenMode === 'two' ? 'two' : 'one', center: d.center ? { lat: d.center.lat, lon: d.center.lon } : null, updated: d.updated,
       nines: d.nines.map(function (nn) {
         return {
           name: nn.name, holes: nn.holes.map(function (hl) {
-            var o = { n: hl.n, par: hl.par, tees: hl.tees.map(function (t) { return { lat: t.lat, lon: t.lon, label: t.label }; }), green: { front: hl.green.front, center: hl.green.center, back: hl.green.back } };
-            if (hl.green.poly) o.green.poly = hl.green.poly.map(function (p) { return p.slice(); });
+            var o = { n: hl.n, par: hl.par, tees: hl.tees.map(function (t) { return { lat: t.lat, lon: t.lon, label: t.label }; }), green: copyGreen(G(hl, 0)) };
+            if (hl.greens) o.greens = hl.greens.map(function (g, i) { return copyGreen(g, { id: TWIN[i].id, label: g.label || TWIN[i].label }); });
             if (hl.path.length) o.path = hl.path.map(function (p) { return p.slice(); });
             if (hl.hazards.length) o.hazards = hl.hazards.map(function (z) { return z.poly ? { type: z.type, poly: z.poly.map(function (p) { return p.slice(); }) } : { type: z.type, pt: { lat: z.pt.lat, lon: z.pt.lon } }; });
             o.src = hl.src;
+            if (hl.oneGreen && d.greenMode === 'two') o.oneGreen = true;
             return JSON.parse(JSON.stringify(o));
           })
         };
       })
     };
   }
-  function greenEnd(hl) { return hl.green.center || hl.green.back || hl.green.front; }
-  function route(hl, ti) {
-    var t = hl.tees[ti || 0], e = greenEnd(hl), pts = [];
+  function greenEnd(hl, side) { var g = G(hl, side); return g.center || g.back || g.front; }
+  function route(hl, ti, side) {
+    var t = hl.tees[ti || 0], e = greenEnd(hl, side), pts = [];
     if (t) pts.push(t); hl.path.forEach(function (p) { pts.push(P(p)); }); if (e) pts.push(e);
     return pts;
   }
-  function holeLen(hl, ti) { var t = hl.tees[ti || 0]; if (!t || !hl.green.center) return null; return pathLen([t].concat(hl.path.map(P), [hl.green.center])); }
+  function holeLen(hl, ti, side) { var t = hl.tees[ti || 0], c = G(hl, side).center; if (!t || !c) return null; return pathLen([t].concat(hl.path.map(P), [c])); }
+  function greenDone(g) { return !!(g.front && g.center && g.back); }
+  function greenAny(g) { return !!(g.front || g.center || g.back); }
   function status(hl) {
-    var g = hl.green, done = hl.tees.length && g.front && g.center && g.back;
-    if (done) return 'done';
-    return (hl.tees.length || g.front || g.center || g.back || hl.path.length || hl.hazards.length) ? 'part' : 'empty';
+    var gs = sides(hl).map(function (i) { return G(hl, i); });
+    if (hl.tees.length && gs.every(greenDone)) return 'done';
+    return (hl.tees.length || gs.some(greenAny) || hl.path.length || hl.hazards.length) ? 'part' : 'empty';
   }
   function holePoints(hl) {
-    var pts = hl.tees.slice(); ['front', 'center', 'back'].forEach(function (k) { if (hl.green[k]) pts.push(hl.green[k]); });
+    var pts = hl.tees.slice();
+    sides(hl).forEach(function (i) {
+      var g = G(hl, i);
+      ['front', 'center', 'back'].forEach(function (k) { if (g[k]) pts.push(g[k]); });
+      if (g.poly) g.poly.forEach(function (p) { pts.push(P(p)); });
+    });
     hl.path.forEach(function (p) { pts.push(P(p)); });
-    if (hl.green.poly) hl.green.poly.forEach(function (p) { pts.push(P(p)); });
     return pts;
   }
 
@@ -497,7 +541,7 @@
   function importOsm(json, center, o) {
     o = o || {};
     var els = (json && json.elements) || [], radius = o.radius || 1500;
-    var sum = { course: null, holes: 0, greens: 0, tees: 0, bunker: 0, water: 0, ob: 0, noPar: 0, noRef: 0, outside: 0, unassigned: 0, nines: [] };
+    var sum = { course: null, holes: 0, twin: 0, greens: 0, tees: 0, bunker: 0, water: 0, ob: 0, noPar: 0, noRef: 0, outside: 0, unassigned: 0, nines: [] };
     var courses = els.filter(function (e) { return e.tags && e.tags.leisure === 'golf_course' && e.type !== 'node'; }).map(function (e) {
       var rings = ringsOf(e).filter(function (r) { return r.length >= 3; }).map(openRing);
       return { e: e, rings: rings, c: rings.length ? centroid(rings[0]) : null };
@@ -550,6 +594,19 @@
       if (ds < de) { x.line.reverse(); gEnd = gStart; }
       if (gEnd) { gEnd.used = true; x.green = gEnd; }
     });
+    /* 투그린: a second unused green near this hole's end, >25 m from the first, and nearer to this hole than any other */
+    holes.forEach(function (x) {
+      if (!x.green) return;
+      var end = x.line[x.line.length - 1], best = null, bd = 60;
+      greens.forEach(function (g) {
+        if (g.used) return;
+        var d = Math.min(dist(g.c, end), dist(g.c, x.green.c));
+        if (d >= bd || dist(g.c, x.green.c) <= 25) return;
+        var closer = holes.some(function (y) { return y !== x && dist(g.c, y.line[y.line.length - 1]) < dist(g.c, end); });
+        if (!closer) { bd = d; best = g; }
+      });
+      if (best) { best.used = true; x.green2 = best; sum.twin++; }
+    });
 
     /* tees */
     var tees = by('tee').map(function (e) {
@@ -575,7 +632,7 @@
       sum[type]++;
       var lim = type === 'bunker' ? 70 : 150, best = null, bd = lim;
       holes.forEach(function (x) {
-        var line = x.line.slice(); if (x.green) line.push(x.green.c);
+        var line = x.line.slice(); if (x.green) line.push(x.green.c); if (x.green2) line.push(x.green2.c);
         var d = lineDist(e._p, line); if (x.green && x.green.ring) d = Math.min(d, dist(e._p, x.green.c) - 10);
         if (d < bd) { bd = d; best = x; }
       });
@@ -606,14 +663,27 @@
         hl.path = L.slice(1, -1).map(function (p) { return [rnd(p.lat), rnd(p.lon)]; });
         var c = x.green ? x.green.c : last;
         var prev = L.length >= 2 ? L[L.length - 2] : L[0];
-        if (dist(prev, c) < 5 && L.length >= 3) prev = L[L.length - 3];
-        hl.green.center = normPt(c);
-        if (x.green && x.green.ring) {
-          hl.green.poly = x.green.ring.map(function (p) { return [rnd(p.lat), rnd(p.lon)]; });
-          var rp = rayPoly(prev, c, x.green.ring);
-          if (rp.ts.length >= 2) { hl.green.front = normPt(rp.at(rp.ts[0])); hl.green.back = normPt(rp.at(rp.ts[rp.ts.length - 1])); }
+        if (dist(prev, last) < 5 && L.length >= 3) prev = L[L.length - 3];
+        var build = function (gr, cc) {
+          var o = { front: null, center: normPt(cc), back: null };
+          if (gr && gr.ring) {
+            o.poly = gr.ring.map(function (p) { return [rnd(p.lat), rnd(p.lon)]; });
+            var rp = rayPoly(prev, cc, gr.ring);
+            if (rp.ts.length >= 2) { o.front = normPt(rp.at(rp.ts[0])); o.back = normPt(rp.at(rp.ts[rp.ts.length - 1])); }
+          }
+          if (!o.front) { o.front = normPt(along(prev, cc, -12)); o.back = normPt(along(prev, cc, 12)); }
+          return o;
+        };
+        if (x.green2) {
+          // left/right relative to play direction prev -> hole end (x east, y north: cross > 0 = left)
+          var o0 = P(prev), dv = xy(last, o0), side = function (g) { var v = xy(g.c, o0); return dv[0] * v[1] - dv[1] * v[0]; };
+          var pair = side(x.green) >= side(x.green2) ? [x.green, x.green2] : [x.green2, x.green];
+          hl.greens = pair.map(function (gr, i) { var g = build(gr, gr.c); g.id = TWIN[i].id; g.label = TWIN[i].label; return g; });
+          syncGreen(hl);
+          c = pair[0].c;
+        } else {
+          hl.green = build(x.green, c);
         }
-        if (!hl.green.front) { hl.green.front = normPt(along(prev, c, -12)); hl.green.back = normPt(along(prev, c, 12)); }
         var ts = x.tees.slice().sort(function (a, b) { return dist(b.p, c) - dist(a.p, c); });
         hl.tees = ts.map(function (t, i) { var p = normPt(t.p); return { lat: p.lat, lon: p.lon, label: t.label || TEE_LABELS[i] || ('티' + (i + 1)) }; });
         if (!hl.tees.length) { var p0 = normPt(L[0]); hl.tees = [{ lat: p0.lat, lon: p0.lon, label: '티' }]; }
@@ -625,7 +695,8 @@
       return nine;
     });
     var ccenter = course ? course.c : null;
-    return { nines: nines, club: sum.course, center: ccenter ? normPt(ccenter) : null, summary: sum };
+    sum.greenMode = sum.holes && sum.twin * 2 > sum.holes ? 'two' : 'one';
+    return { nines: nines, club: sum.course, center: ccenter ? normPt(ccenter) : null, greenMode: sum.greenMode, summary: sum };
   }
 
   /* ================================================================ editor */
@@ -653,7 +724,7 @@
     this.opts = opts;
     var layers = (opts.tiles || DEFAULT_TILES).filter(function (l) { return l && l.url && (l.url.indexOf('{key}') < 0 || l.key); });
     var data = normalize(opts.data, opts);
-    var S = { ni: 0, hi: 0, tool: 'tee', undo: [], dismissed: {}, layer: 0, renaming: false };
+    var S = { ni: 0, hi: 0, side: 0, tool: 'tee', undo: [], dismissed: {}, layer: 0, renaming: false, twinOff: false, modeAsk: false };
     var map = null, layersDrawn = [], live = [], draftKey = opts.storageKey || ('mapedit:draft:' + (data.club || 'default'));
     var saveTimer = 0, toastTimer = 0;
 
@@ -687,7 +758,9 @@
     ]);
     el.tabs = h('div', { class: 'me-tabs', role: 'tablist' });
     el.chips = h('div', { class: 'me-chips' });
-    var nav = h('nav', { class: 'me-nav' }, [el.tabs, el.chips]);
+    el.mode = h('div', { class: 'me-mode', role: 'radiogroup', 'aria-label': '그린 방식' });
+    el.modeAsk = h('div', { class: 'me-modeask', hidden: true });
+    var nav = h('nav', { class: 'me-nav' }, [h('div', { class: 'me-navrow' }, [el.tabs, el.mode]), el.modeAsk, el.chips]);
 
     el.mapHost = h('div', { class: 'me-maphost' });
     el.hint = h('div', { class: 'me-hint', 'aria-live': 'polite' });
@@ -718,7 +791,8 @@
     el.dist = h('div', { class: 'me-dist' });
     el.holeTitle = h('div', { class: 'me-holetitle' });
     var info = h('div', { class: 'me-info' }, [h('div', { class: 'me-inforow' }, [el.holeTitle, el.par]), el.dist]);
-    var panel = h('section', { class: 'me-panel' }, [el.tools, info]);
+    el.greenBar = h('div', { class: 'me-greenbar' });
+    var panel = h('section', { class: 'me-panel' }, [el.tools, el.greenBar, info]);
 
     el.modal = h('div', { class: 'me-modal', hidden: true, role: 'dialog', 'aria-modal': 'true' });
     var tips = h('div', { class: 'me-tips' }, [h('b', { text: '사용법' }), h('ul', null, [
@@ -733,13 +807,17 @@
     /* ---------- helpers */
     function nine() { return data.nines[S.ni]; }
     function hole() { return nine().holes[S.hi]; }
-    function snapshot() { return { d: JSON.stringify(data), ni: S.ni, hi: S.hi, tool: S.tool }; }
+    function snapshot() { return { d: JSON.stringify(data), ni: S.ni, hi: S.hi, side: S.side, tool: S.tool }; }
     function pushUndo() { S.undo.push(snapshot()); if (S.undo.length > 150) S.undo.shift(); }
     function toast(msg, ms) {
       el.toast.textContent = msg; el.toast.hidden = false;
       clearTimeout(toastTimer); toastTimer = setTimeout(function () { el.toast.hidden = true; }, ms || 2200);
     }
+    function syncAll() { data.nines.forEach(function (nn) { nn.holes.forEach(syncGreen); }); }
+    function isGreenTool(t) { return t === 'front' || t === 'center' || t === 'back'; }
+    function sideName(x, si) { return x.greens ? (x.greens[si].label || TWIN[si].label) : ''; }
     function changed() {
+      syncAll();
       data.updated = new Date().toISOString();
       renderAll();
       clearTimeout(saveTimer);
@@ -785,33 +863,93 @@
       });
       el.undoBtn.disabled = !S.undo.length;
       var x = hole();
-      el.hint.textContent = nine().name + ' ' + x.n + '번 · 지도를 탭해 「' + TOOL_NAME[S.tool] + '」 찍기';
+      renderMode();
+      el.hint.textContent = nine().name + ' ' + x.n + '번 · 지도를 탭해 「' + (x.greens && isGreenTool(S.tool) ? sideName(x, S.side) + ' ' : '') + TOOL_NAME[S.tool] + '」 찍기';
+      renderGreenBar();
     }
     function renderInfo() {
       var x = hole();
       el.holeTitle.textContent = nine().name + ' ' + x.n + '번 홀' + (x.src === 'osm' ? ' · 공개지도' : '');
       Array.prototype.forEach.call(el.par.querySelectorAll('[data-par]'), function (b) { b.classList.toggle('on', +b.getAttribute('data-par') === x.par); });
       el.dist.innerHTML = '';
-      if (!x.tees.length || !x.green.center) {
+      var sd = sides(x), anyC = sd.some(function (si) { return G(x, si).center; });
+      if (!x.tees.length || !anyC) {
         el.dist.appendChild(h('span', { class: 'me-muted', text: x.tees.length ? '그린 중앙을 찍으면 거리가 표시돼요' : '티와 그린 중앙을 찍으면 거리가 표시돼요' }));
       } else {
         x.tees.forEach(function (t, i) {
-          el.dist.appendChild(h('button', { type: 'button', class: 'me-teed', 'data-tee': String(i), title: '탭해서 티 이름 바꾸기' }, [
-            h('span', { class: 'me-teel', text: t.label }), h('b', { text: fmtM(holeLen(x, i)) })
-          ]));
+          var kids = [h('span', { class: 'me-teel', text: t.label })];
+          sd.forEach(function (si, k) {
+            if (k) kids.push(h('span', { class: 'me-teel', text: '·' }));
+            if (x.greens) kids.push(h('span', { class: 'me-teel', text: sideName(x, si) }));
+            kids.push(h('b', { class: x.greens && si !== S.side ? 'me-off' : null, text: fmtM(holeLen(x, i, si)) }));
+          });
+          el.dist.appendChild(h('button', { type: 'button', class: 'me-teed', 'data-tee': String(i), title: '탭해서 티 이름 바꾸기' }, kids));
         });
       }
-      if (x.green.front && x.green.back) el.dist.appendChild(h('span', { class: 'me-gd', text: '그린 깊이 ' + fmtM(dist(x.green.front, x.green.back)) }));
+      var ga = G(x, S.side);
+      if (ga.front && ga.back) el.dist.appendChild(h('span', { class: 'me-gd', text: (x.greens ? sideName(x, S.side) + ' ' : '') + '그린 깊이 ' + fmtM(dist(ga.front, ga.back)) }));
       if (x.hazards.length) el.dist.appendChild(h('span', { class: 'me-gd', text: '해저드 ' + x.hazards.length }));
-      // helper
-      var showHelp = x.green.center && !x.green.front && !x.green.back && !S.dismissed[S.ni + ':' + S.hi];
+      // helper (applies to the selected green side)
+      var showHelp = ga.center && !ga.front && !ga.back && !S.dismissed[S.ni + ':' + S.hi + ':' + S.side];
       el.helper.hidden = !showHelp; el.helper.innerHTML = '';
       if (showHelp) {
         var ref = x.path.length ? P(x.path[x.path.length - 1]) : x.tees[0];
-        el.helper.appendChild(h('span', { text: ref ? '그린 앞/뒤 ±12m 자동 채우기' : '티를 찍으면 앞/뒤 자동 채우기 가능' }));
+        el.helper.appendChild(h('span', { text: ref ? (x.greens ? sideName(x, S.side) + ' ' : '') + '그린 앞/뒤 ±12m 자동 채우기' : '티를 찍으면 앞/뒤 자동 채우기 가능' }));
         if (ref) el.helper.appendChild(h('button', { type: 'button', class: 'me-btn me-btn-gold me-sm', 'data-act': 'autofill', text: '채우기' }));
         el.helper.appendChild(h('button', { type: 'button', class: 'me-x', 'data-act': 'dismiss', 'aria-label': '닫기', text: '×' }));
       }
+    }
+    function renderMode() {
+      var two = data.greenMode === 'two';
+      el.mode.innerHTML = '';
+      [['one', '원그린'], ['two', '투그린']].forEach(function (m) {
+        var on = (m[0] === 'two') === two;
+        el.mode.appendChild(h('button', { type: 'button', role: 'radio', class: on ? 'on' : '', 'aria-checked': String(on), 'data-mode': m[0], text: m[1] }));
+      });
+      el.modeAsk.hidden = !S.modeAsk; el.modeAsk.innerHTML = '';
+      if (S.modeAsk) {
+        el.modeAsk.appendChild(h('span', { text: '모든 홀의 우 그린을 지우고 좌 그린만 남길까요?' }));
+        el.modeAsk.appendChild(h('button', { type: 'button', class: 'me-btn me-btn-ghost me-sm', 'data-act': 'mode-cancel', text: '취소' }));
+        el.modeAsk.appendChild(h('button', { type: 'button', class: 'me-btn me-btn-gold me-sm', 'data-act': 'mode-ok', text: '원그린으로' }));
+      }
+    }
+    function renderGreenBar() {
+      var x = hole();
+      el.greenBar.innerHTML = '';
+      el.greenBar.hidden = data.greenMode !== 'two';
+      if (el.greenBar.hidden) return;
+      if (x.greens && S.twinOff) {
+        el.greenBar.appendChild(h('span', { class: 'me-ask', text: '이 홀의 우 그린을 지우고 원그린으로 바꿀까요?' }));
+        el.greenBar.appendChild(h('button', { type: 'button', class: 'me-btn me-btn-ghost me-sm', 'data-act': 'twinoff-cancel', text: '취소' }));
+        el.greenBar.appendChild(h('button', { type: 'button', class: 'me-btn me-btn-gold me-sm', 'data-act': 'twinoff-ok', text: '바꾸기' }));
+        return;
+      }
+      if (x.greens) {
+        var seg = h('div', { class: 'me-seg', role: 'radiogroup', 'aria-label': '그린 선택' });
+        [0, 1].forEach(function (si) {
+          var g = x.greens[si];
+          seg.appendChild(h('button', { type: 'button', role: 'radio', class: (si === S.side ? 'on ' : '') + (greenDone(g) ? 'done' : greenAny(g) ? 'part' : ''), 'aria-checked': String(si === S.side), 'data-side': String(si), text: sideName(x, si) + ' 그린' }));
+        });
+        el.greenBar.appendChild(seg);
+      } else {
+        el.greenBar.appendChild(h('span', { class: 'me-muted me-gbhint', text: '이 홀은 그린이 하나예요' }));
+      }
+      el.greenBar.appendChild(h('button', { type: 'button', class: 'me-check' + (x.oneGreen ? ' on' : ''), 'data-act': 'onegreen', role: 'checkbox', 'aria-checked': String(!!x.oneGreen) }, [
+        h('span', { class: 'me-box', text: x.oneGreen ? '✓' : '' }), h('span', { text: '이 홀은 원그린' })
+      ]));
+    }
+    function setMode(m) {
+      if (m === data.greenMode) { S.modeAsk = false; renderMode(); return; }
+      if (m === 'one') {
+        var lose = data.nines.some(function (nn) { return nn.holes.some(function (x) { return x.greens && (greenAny(x.greens[1]) || x.greens[1].poly); }); });
+        if (lose && !S.modeAsk) { S.modeAsk = true; renderMode(); return; }
+      }
+      pushUndo();
+      S.modeAsk = false; S.twinOff = false; data.greenMode = m;
+      data.nines.forEach(function (nn) { nn.holes.forEach(function (x) { if (m === 'two') delete x.oneGreen; conformHole(x, m); }); });
+      toast(m === 'two' ? '투그린 코스로 설정했어요 — 좌/우 그린을 찍어 주세요' : '원그린 코스로 바꿨어요');
+      selectHole(S.ni, S.hi, false);
+      changed();
     }
     function renderLayers() {
       var l = layers[S.layer];
@@ -823,22 +961,29 @@
     function drawLive() { // route line + distance badge for the active hole (redrawn while dragging)
       clearLayers(live);
       var x = hole();
-      x.tees.forEach(function (t, i) {
-        var r = route(x, i); if (r.length < 2) return;
-        if (i > 0) r = [t, r[1]];
-        live.push(map.shape(r, { cls: i === 0 ? 'me-route' : 'me-route2' }));
+      sides(x).forEach(function (si) {
+        var dim = x.greens && si !== S.side ? ' me-dim' : '', g = G(x, si);
+        x.tees.forEach(function (t, i) {
+          var r = route(x, i, si); if (r.length < 2) return;
+          if (i > 0) r = [t, r[1]];
+          live.push(map.shape(r, { cls: (i === 0 ? 'me-route' : 'me-route2') + dim }));
+        });
+        if (g.front && g.back) live.push(map.shape([g.front, g.back], { cls: 'me-gline' + dim }));
       });
-      if (x.green.front && x.green.back) live.push(map.shape([x.green.front, x.green.back], { cls: 'me-gline' }));
-      var r0 = route(x, 0), len = holeLen(x, 0);
-      if (r0.length >= 2 && len != null) {
-        var half = len / 2, acc = 0, mid = r0[0];
-        for (var i = 1; i < r0.length; i++) {
-          var d = dist(r0[i - 1], r0[i]);
-          if (acc + d >= half) { var f = (half - acc) / (d || 1), a = r0[i - 1], b = r0[i]; mid = { lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f }; break; }
-          acc += d;
-        }
-        live.push(map.marker(mid, { cls: 'me-badge', label: fmtM(len) }));
+      // one distance badge at mid-route (two greens: "좌 371 · 우 362m", measured along the selected side's route)
+      var lens = sides(x).map(function (si) { return holeLen(x, 0, si); });
+      var bs = lens[S.side] != null ? S.side : lens.findIndex(function (v) { return v != null; });
+      if (bs < 0) return;
+      var r0 = route(x, 0, bs), len = lens[bs];
+      if (r0.length < 2) return;
+      var half = len / 2, acc = 0, mid = r0[0];
+      for (var i = 1; i < r0.length; i++) {
+        var d = dist(r0[i - 1], r0[i]);
+        if (acc + d >= half) { var f = (half - acc) / (d || 1), a = r0[i - 1], b = r0[i]; mid = { lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f }; break; }
+        acc += d;
       }
+      var label = x.greens ? sides(x).map(function (si) { return sideName(x, si) + ' ' + (lens[si] == null ? '–' : Math.round(lens[si])); }).join(' · ') + 'm' : fmtM(len);
+      live.push(map.marker(mid, { cls: 'me-badge', label: label }));
     }
     function redrawMap() {
       if (!map) return;
@@ -856,13 +1001,17 @@
         if (z.poly) layersDrawn.push(map.shape(z.poly, { kind: 'poly', cls: 'me-hz-' + z.type }));
         else layersDrawn.push(map.marker(z.pt, dragOpts({ cls: 'me-m-hz me-hz-' + z.type, label: z.type === 'ob' ? 'OB' : z.type === 'water' ? 'W' : 'B' }, function (ll) { z.pt = LL(ll.lat, ll.lon); })));
       });
-      if (x.green.poly) layersDrawn.push(map.shape(x.green.poly, { kind: 'poly', cls: 'me-greenpoly' }));
+      sides(x).forEach(function (si) { var g = G(x, si); if (g.poly) layersDrawn.push(map.shape(g.poly, { kind: 'poly', cls: 'me-greenpoly' + (x.greens && si !== S.side ? ' me-dim' : '') })); });
       x.path.forEach(function (p, pi) {
         layersDrawn.push(map.marker(P(p), dragOpts({ cls: 'me-m-path', label: '' }, function (ll) { x.path[pi] = [rnd(ll.lat), rnd(ll.lon)]; })));
       });
-      [['front', '앞'], ['back', '뒤'], ['center', '중']].forEach(function (k) {
-        var p = x.green[k[0]]; if (!p) return;
-        layersDrawn.push(map.marker(p, dragOpts({ cls: 'me-m-g me-m-' + k[0], label: k[1] }, function (ll) { x.green[k[0]] = LL(ll.lat, ll.lon); })));
+      var order = sides(x).sort(function (a, b) { return (a === S.side) - (b === S.side); }); // active side drawn on top
+      order.forEach(function (si) {
+        var g = G(x, si), pre = x.greens ? sideName(x, si) : '', cls = x.greens ? ' me-twin' + (si !== S.side ? ' me-dim' : '') : '';
+        [['front', '앞'], ['back', '뒤'], ['center', '중']].forEach(function (k) {
+          var p = g[k[0]]; if (!p) return;
+          layersDrawn.push(map.marker(p, dragOpts({ cls: 'me-m-g me-m-' + k[0] + cls, label: pre + k[1] }, function (ll) { g[k[0]] = LL(ll.lat, ll.lon); S.side = si; })));
+        });
       });
       x.tees.forEach(function (t, ti) {
         layersDrawn.push(map.marker(t, dragOpts({ cls: 'me-m-tee me-tee' + ti, label: 'T', caption: t.label }, function (ll) { var q = LL(ll.lat, ll.lon); t.lat = q.lat; t.lon = q.lon; })));
@@ -872,7 +1021,7 @@
     function dragOpts(mo, apply) {
       mo.draggable = true;
       mo.onDragStart = function () { pushUndo(); };
-      mo.onDrag = function (ll) { apply(ll); drawLive(); renderInfo(); };
+      mo.onDrag = function (ll) { apply(ll); syncGreen(hole()); drawLive(); renderInfo(); };
       mo.onDragEnd = function (ll) { apply(ll); hole().src = 'user'; changed(); };
       return mo;
     }
@@ -881,7 +1030,7 @@
     /* ---------- actions */
     function fitHole(x) {
       var pts = holePoints(x || hole());
-      if (pts.length >= 2) map.fitBounds(pts, [96, 64, 48, 44], 18.5);
+      if (pts.length >= 2) map.fitBounds(pts, [96, 64, 72, 44], 18.5);
       else if (pts.length === 1) map.setView(pts[0], Math.max(map.getZoom(), 17));
     }
     function fitAll() {
@@ -889,9 +1038,11 @@
       if (pts.length) map.fitBounds(pts, [60, 56, 30, 30], 18);
     }
     function selectHole(ni, hi, fit) {
-      S.ni = ni; S.hi = hi; S.renaming = false;
-      var x = hole(), g = x.green;
-      S.tool = !x.tees.length ? 'tee' : !g.front ? 'front' : !g.center ? 'center' : !g.back ? 'back' : S.tool;
+      S.ni = ni; S.hi = hi; S.renaming = false; S.twinOff = false; S.side = 0;
+      var x = hole(), first = function (g) { return !g.front ? 'front' : !g.center ? 'center' : !g.back ? 'back' : null; };
+      if (!x.tees.length) S.tool = 'tee';
+      else if (first(G(x, 0))) S.tool = first(G(x, 0));
+      else if (x.greens && first(G(x, 1))) { S.side = 1; S.tool = first(G(x, 1)); }
       renderAll();
       if (fit && map && holePoints(x).length) fitHole(x);
     }
@@ -900,8 +1051,17 @@
       return true;
     }
     function advance(tool) {
-      var x = hole(), g = x.green;
-      if (tool === 'back') { if (nextHole()) { S.tool = 'tee'; toast(nine().name + ' ' + hole().n + '번 홀 — 티를 찍어 주세요', 1600); } return; }
+      var x = hole(), g = G(x, S.side);
+      if (tool === 'back') {
+        if (x.greens && S.side === 0) { // 좌 뒤 -> 우 앞
+          var r = x.greens[1]; S.side = 1;
+          S.tool = !r.front ? 'front' : !r.center ? 'center' : !r.back ? 'back' : 'front';
+          toast(sideName(x, 1) + ' 그린 「' + TOOL_NAME[S.tool] + '」을 찍어 주세요', 1600);
+          return;
+        }
+        if (nextHole()) { S.side = 0; S.twinOff = false; S.tool = 'tee'; toast(nine().name + ' ' + hole().n + '번 홀 — 티를 찍어 주세요', 1600); }
+        return;
+      }
       var seq = { tee: ['front', 'center', 'back'], front: ['center', 'back'], center: ['back', 'front'] }[tool];
       if (!seq) return;
       for (var i = 0; i < seq.length; i++) if (!g[seq[i]]) { S.tool = seq[i]; return; }
@@ -924,7 +1084,7 @@
       if (t === 'tee') {
         if (x.tees.length >= 6) { S.undo.pop(); toast('티는 6개까지 넣을 수 있어요'); return; }
         x.tees.push({ lat: p.lat, lon: p.lon, label: TEE_LABELS[x.tees.length] || ('티' + (x.tees.length + 1)) });
-      } else if (t === 'front' || t === 'center' || t === 'back') x.green[t] = p;
+      } else if (isGreenTool(t)) G(x, S.side)[t] = p;
       else if (t === 'path') insertPath(x, p);
       else if (HZ[t]) x.hazards.push({ type: t, pt: p });
       x.src = 'user';
@@ -932,24 +1092,25 @@
       changed();
     }
     function autofill() {
-      var x = hole(), c = x.green.center, ref = x.path.length ? P(x.path[x.path.length - 1]) : x.tees[0];
+      var x = hole(), g = G(x, S.side), c = g.center, ref = x.path.length ? P(x.path[x.path.length - 1]) : x.tees[0];
       if (!c || !ref) return;
       pushUndo();
-      x.green.front = normPt(along(ref, c, -12)); x.green.back = normPt(along(ref, c, 12)); x.src = 'user';
+      g.front = normPt(along(ref, c, -12)); g.back = normPt(along(ref, c, 12)); x.src = 'user';
       toast('앞/뒤를 채웠어요 — 드래그로 조정할 수 있어요');
       advance('back');
       changed();
     }
     function undo() {
       var s = S.undo.pop(); if (!s) return;
-      data = JSON.parse(s.d); S.ni = Math.min(s.ni, data.nines.length - 1); S.hi = s.hi; S.tool = s.tool;
+      data = JSON.parse(s.d); S.ni = Math.min(s.ni, data.nines.length - 1); S.hi = s.hi; S.tool = s.tool; S.side = s.side || 0; S.twinOff = false; S.modeAsk = false;
       changed(); toast('되돌렸어요', 1200);
     }
     function clearHole() {
       var x = hole();
       if (status(x) === 'empty') return;
       pushUndo();
-      var par = x.par; nine().holes[S.hi] = emptyHole(x.n); nine().holes[S.hi].par = par; S.tool = 'tee';
+      var par = x.par, nh = emptyHole(x.n); nh.par = par; if (x.oneGreen) nh.oneGreen = true;
+      conformHole(nh, data.greenMode); nine().holes[S.hi] = nh; S.tool = 'tee'; S.side = 0;
       changed(); toast(x.n + '번 홀을 지웠어요 · 되돌리기 가능');
     }
     function setLayer(i) {
@@ -993,7 +1154,7 @@
       var rows = [
         ['골프장', s.course || '(경계 없음 · 반경 ' + ((opts.radius || 1500) / 1000) + 'km)'],
         ['홀', s.holes + '개 · ' + s.nines.map(function (n) { return n.name + ' ' + n.holes; }).join(' / ')],
-        ['그린', s.greens + '개'], ['티', s.tees + '개'],
+        ['그린', s.greens + '개' + (s.twin ? ' (투그린 홀 ' + s.twin + '개)' : '')], ['티', s.tees + '개'],
         ['벙커', s.bunker + '개'], ['해저드(물)', s.water + '개'], ['OB', s.ob + '개']
       ];
       var notes = [];
@@ -1002,8 +1163,12 @@
       if (s.outside) notes.push('코스 밖 요소 ' + s.outside + ' 제외');
       if (s.unassigned) notes.push('홀 매칭 안 된 요소 ' + s.unassigned);
       var tbl = h('dl', { class: 'me-sum' }); rows.forEach(function (r) { tbl.appendChild(h('dt', { text: r[0] })); tbl.appendChild(h('dd', { text: r[1] })); });
+      var modeNote = null;
+      if (s.greenMode === 'two' && data.greenMode !== 'two') modeNote = '투그린 홀이 대부분이라 코스를 투그린으로 설정해요.';
+      else if (s.twin && data.greenMode !== 'two') modeNote = '투그린 홀 ' + s.twin + '개는 좌 그린만 들어가요 (원그린 코스). 투그린이면 상단에서 바꿔 주세요.';
       var anyUser = data.nines.some(function (nn) { return nn.holes.some(function (x) { return status(x) !== 'empty'; }); });
       var body = [tbl];
+      if (modeNote) body.push(h('p', { class: 'me-note', text: modeNote }));
       if (notes.length) body.push(h('p', { class: 'me-muted', text: notes.join(' · ') }));
       body.push(h('p', { class: 'me-muted', text: '공개 지도 데이터는 부정확할 수 있어요. 불러온 뒤 위성사진으로 확인해 주세요.' }));
       var btns = [{ id: 'cancel', label: '취소' }];
@@ -1013,20 +1178,25 @@
     }
     function applyImport(res, overwrite) {
       pushUndo();
-      var n = 0;
+      var n = 0, switched = false;
+      if (res.greenMode === 'two' && data.greenMode !== 'two') { // OSM says mostly two-green: switch the club
+        data.greenMode = 'two'; switched = true;
+        data.nines.forEach(function (nn) { nn.holes.forEach(function (x) { conformHole(x, 'two'); }); });
+      }
       res.nines.forEach(function (nn, i) {
-        if (!data.nines[i]) data.nines.push(emptyNine(nn.name));
+        if (!data.nines[i]) { var ne = emptyNine(nn.name); ne.holes.forEach(function (x) { conformHole(x, data.greenMode); }); data.nines.push(ne); }
         var tgt = data.nines[i];
         if (overwrite && nn.name) tgt.name = nn.name;
         nn.holes.forEach(function (x, hi) {
           if (x.src !== 'osm') return;
-          if (overwrite || status(tgt.holes[hi]) === 'empty') { tgt.holes[hi] = JSON.parse(JSON.stringify(x)); n++; }
+          if (overwrite || status(tgt.holes[hi]) === 'empty') { var c = JSON.parse(JSON.stringify(x)); conformHole(c, data.greenMode); tgt.holes[hi] = c; n++; }
         });
       });
       if (!data.club && res.club) data.club = res.club;
       if (!data.center && res.center) data.center = res.center;
       changed();
-      toast(n + '개 홀을 불러왔어요');
+      toast(n + '개 홀을 불러왔어요' + (switched ? ' · 투그린 코스로 설정' : ''));
+      S.side = 0;
       if (map) fitAll();
     }
 
@@ -1075,6 +1245,13 @@
       if (b.hasAttribute('data-par')) {
         var p = +b.getAttribute('data-par'); pushUndo(); hole().par = hole().par === p ? null : p; changed(); return;
       }
+      if (b.hasAttribute('data-mode')) { setMode(b.getAttribute('data-mode')); return; }
+      if (b.hasAttribute('data-side')) {
+        var x0 = hole(), si = +b.getAttribute('data-side'), g0 = G(x0, si);
+        S.side = si;
+        if (isGreenTool(S.tool) || x0.tees.length) S.tool = !g0.front ? 'front' : !g0.center ? 'center' : !g0.back ? 'back' : (isGreenTool(S.tool) ? S.tool : 'center');
+        renderAll(); return;
+      }
       if (b.hasAttribute('data-layer')) { setLayer(+b.getAttribute('data-layer')); el.layerList.hidden = true; return; }
       if (b.hasAttribute('data-tee')) {
         var x = hole(), t = x.tees[+b.getAttribute('data-tee')], all = TEE_LABELS;
@@ -1089,13 +1266,23 @@
         case 'rename': S.renaming = true; renderTabs(); break;
         case 'addnine':
           if (data.nines.length >= 6) { toast('나인은 6개까지 추가할 수 있어요'); break; }
-          pushUndo(); data.nines.push(emptyNine('코스' + (data.nines.length + 1))); S.ni = data.nines.length - 1; S.hi = 0; S.tool = 'tee'; S.renaming = true; changed(); break;
+          pushUndo(); var nn9 = emptyNine('코스' + (data.nines.length + 1)); nn9.holes.forEach(function (x) { conformHole(x, data.greenMode); }); data.nines.push(nn9); S.ni = data.nines.length - 1; S.hi = 0; S.tool = 'tee'; S.renaming = true; changed(); break;
         case 'delnine':
           if (data.nines.length <= 1) { toast('나인은 최소 1개가 필요해요'); break; }
           modal('나인 삭제', [h('p', { text: '「' + nine().name + '」 나인과 그 안의 9개 홀 정보를 지울까요? 되돌리기로 복구할 수 있어요.' })], [
             { id: 'cancel', label: '취소' },
             { id: 'ok', label: '삭제', cls: 'me-btn-gold', fn: function () { pushUndo(); data.nines.splice(S.ni, 1); S.ni = Math.max(0, S.ni - 1); S.hi = 0; changed(); } }
           ]); break;
+        case 'mode-ok': setMode('one'); break;
+        case 'mode-cancel': S.modeAsk = false; renderMode(); break;
+        case 'onegreen': {
+          var hx = hole();
+          if (hx.oneGreen) { pushUndo(); delete hx.oneGreen; addTwin(hx); S.side = 0; changed(); break; }
+          if (hx.greens && (greenAny(hx.greens[1]) || hx.greens[1].poly) && !S.twinOff) { S.twinOff = true; renderGreenBar(); break; }
+          pushUndo(); dropTwin(hx); hx.oneGreen = true; S.side = 0; S.twinOff = false; changed(); break;
+        }
+        case 'twinoff-ok': { var hy = hole(); pushUndo(); dropTwin(hy); hy.oneGreen = true; S.side = 0; S.twinOff = false; changed(); break; }
+        case 'twinoff-cancel': S.twinOff = false; renderGreenBar(); break;
         case 'undo': undo(); break;
         case 'clear': clearHole(); break;
         case 'autofill': autofill(); break;

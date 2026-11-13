@@ -40,18 +40,30 @@
     if (!t) throw new Error("Yardage: hole has no tees");
     return { lat: +t.lat, lon: +(t.lon != null ? t.lon : t.lng), label: t.label || "" };
   }
-  function greenOf(hole) {
-    var g = hole.green || {};
+  function normGreen(g, i) {
+    g = g || {};
     var c = P(g.center) || P(g.front) || P(g.back);
     if (!c) throw new Error("Yardage: hole has no green point");
-    return { front: P(g.front) || c, center: c, back: P(g.back) || c, poly: (g.poly || []).map(P) };
+    return { id: g.id || (i === 1 ? "R" : i === 0 ? "L" : String(i)), label: g.label || "", front: P(g.front) || c, center: c, back: P(g.back) || c, poly: (g.poly || []).map(P) };
+  }
+  // all greens of a hole: hole.greens (2-green / 투그린 holes) or [hole.green]
+  function greensOf(hole) {
+    if (hole.greens && hole.greens.length > 1) return hole.greens.map(normGreen);
+    var g = normGreen(hole.green || (hole.greens && hole.greens[0]), 0);
+    g.id = (hole.green && hole.green.id) || ""; return [g];
+  }
+  function greenOf(hole, greenIdx) {
+    var gs = greensOf(hole);
+    return gs[Math.max(0, Math.min(gs.length - 1, greenIdx || 0))];
   }
   // play line: tee -> intermediate path points -> green center
-  function playLine(hole, teeIdx) {
-    var tee = teeOf(hole, teeIdx), g = greenOf(hole);
+  // (a path drawn to greens[0] is reused for the other green: its corner points are kept,
+  //  only the final point is swapped for the active green's center)
+  function playLine(hole, teeIdx, greenIdx) {
+    var tee = teeOf(hole, teeIdx), g = greenOf(hole, greenIdx), allG = greensOf(hole);
     var tees = (hole.tees || []).map(P);
     var mids = (hole.path || []).map(P).filter(function (p) {
-      if (hav(p, g.center) < 8) return false;
+      for (var j = 0; j < allG.length; j++) if (hav(p, allG[j].center) < 8) return false;
       for (var i = 0; i < tees.length; i++) if (hav(p, tees[i]) < 8) return false;
       return true;
     });
@@ -76,9 +88,11 @@
     return best;
   }
 
-  function holeStats(hole, teeIdx) {
-    teeIdx = teeIdx || 0;
-    var g = greenOf(hole), line = playLine(hole, teeIdx), tee = line[0];
+  function holeStats(hole, teeIdx, greenIdx) {
+    teeIdx = teeIdx || 0; greenIdx = greenIdx || 0;
+    var gs = greensOf(hole);
+    if (greenIdx >= gs.length) greenIdx = 0;
+    var g = gs[greenIdx], line = playLine(hole, teeIdx, greenIdx), tee = line[0];
     var total = polyLen(line), last = line[line.length - 2], base = total - hav(last, g.center);
     var proj = makeProj(tee), lxy = line.map(proj.fwd);
     // dogleg: an intermediate point deviates >12 m from the tee→green chord, or turn >10°
@@ -103,7 +117,7 @@
       var side = (mn < -4 && mx > 4) || Math.abs(cOff) < 6 ? "C" : (cOff > 0 ? "L" : "R");
       return { type: h.type || "bunker", reach_m: Math.min.apply(null, ds), carry_m: Math.max.apply(null, ds), side: side };
     }).filter(Boolean).sort(function (a, b) { return a.reach_m - b.reach_m; });
-    return {
+    var out = {
       total_m: total,
       toFront_m: base + hav(last, g.front),
       toCenter_m: total,
@@ -112,16 +126,21 @@
       dogleg: dogleg,
       hazards: hz
     };
+    if (gs.length > 1) {
+      out.greenIdx = greenIdx;
+      out.greens = gs.map(function (gg, i) { return { id: gg.id, label: gg.label, toCenter_m: polyLen(playLine(hole, teeIdx, i)) }; });
+    }
+    return out;
   }
 
   /* ------------------------------------------------------------- i18n */
   var I18N = {
     ko: { hole: function (n) { return n + "번 홀"; }, par: "PAR", F: "앞", C: "중앙", B: "뒤", you: "현재 위치", tee: "티", carry: "캐리", reach: "도달",
-      rem: function (d) { return "남은 " + d; }, tees: { black: "블랙", blue: "블루", white: "화이트", red: "레드", gold: "골드", yellow: "옐로", green: "그린" }, dogleg: "도그렉" },
+      rem: function (d) { return "남은 " + d; }, gside: { L: "좌", R: "우", C: "중" }, tees: { black: "블랙", blue: "블루", white: "화이트", red: "레드", gold: "골드", yellow: "옐로", green: "그린" }, dogleg: "도그렉" },
     en: { hole: function (n) { return "Hole " + n; }, par: "Par", F: "Front", C: "Center", B: "Back", you: "From you", tee: "tee", carry: "carry", reach: "reach",
-      rem: function (d) { return d + " to go"; }, tees: {}, dogleg: "Dogleg" },
+      rem: function (d) { return d + " to go"; }, gside: { L: "Left", R: "Right", C: "Center" }, tees: {}, dogleg: "Dogleg" },
     ja: { hole: function (n) { return n + "番ホール"; }, par: "PAR", F: "手前", C: "センター", B: "奥", you: "現在地", tee: "ティー", carry: "キャリー", reach: "到達",
-      rem: function (d) { return "残り" + d; }, tees: { black: "ブラック", blue: "ブルー", white: "ホワイト", red: "レッド", gold: "ゴールド", yellow: "イエロー", green: "グリーン" }, dogleg: "ドッグレッグ" }
+      rem: function (d) { return "残り" + d; }, gside: { L: "左", R: "右", C: "中" }, tees: { black: "ブラック", blue: "ブルー", white: "ホワイト", red: "レッド", gold: "ゴールド", yellow: "イエロー", green: "グリーン" }, dogleg: "ドッグレッグ" }
   };
   var TEE_COLORS = { black: "#1b1b1b", blue: "#2f6fd6", white: "#f4f4f4", red: "#d6453d", gold: "#d4ae5f", yellow: "#e8c93a", green: "#3c9a4e", silver: "#b9c0c4" };
 
@@ -158,7 +177,8 @@
     var id = "yd" + (++uid) + "_";
     var dist = function (m) { return Math.round(m * uf); };
 
-    var st = holeStats(hole, teeIdx), g = greenOf(hole), line = playLine(hole, teeIdx), tee = line[0];
+    var allGreens = greensOf(hole), greenIdx = opts.greenIdx > 0 && opts.greenIdx < allGreens.length ? opts.greenIdx : 0;
+    var st = holeStats(hole, teeIdx, greenIdx), g = allGreens[greenIdx], line = playLine(hole, teeIdx, greenIdx), tee = line[0];
     var allTees = (hole.tees || []).map(function (t, i) { return { p: P(t), label: (t.label || "").toLowerCase(), i: i }; });
     var pos = P(opts.pos);
 
@@ -176,6 +196,13 @@
     var gWid = Math.max(15, gLen * 0.8);
     var gAng = (gB.u - gF.u || gB.v - gF.v) ? Math.atan2(gB.u - gF.u, gB.v - gF.v) : 0; // angle of F→B from "up"
     var gPolyUV = g.poly.length > 2 ? g.poly.map(uv) : null;
+    // inactive greens (투그린): same geometry recipe, drawn dimmer
+    var others = allGreens.map(function (gg, i) {
+      if (i === greenIdx) return null;
+      var F = uv(gg.front), C = uv(gg.center), B = uv(gg.back), len = Math.max(18, Math.hypot(B.u - F.u, B.v - F.v) || 0);
+      return { i: i, g: gg, F: F, C: C, B: B, len: len, wid: Math.max(15, len * 0.8), ang: (B.u - F.u || B.v - F.v) ? Math.atan2(B.u - F.u, B.v - F.v) : 0,
+        poly: gg.poly.length > 2 ? gg.poly.map(uv) : null };
+    }).filter(Boolean);
 
     // fit bbox
     var fit = [];
@@ -184,6 +211,7 @@
     allTees.forEach(function (t) { add(uv(t.p), 6); });
     add(gC, gLen / 2 + 6); add(gF, 4); add(gB, 8);
     if (gPolyUV) gPolyUV.forEach(function (q) { add(q, 4); });
+    others.forEach(function (og) { add(og.C, og.len / 2 + 8); if (og.poly) og.poly.forEach(function (q) { add(q, 4); }); });
     (hole.fairway || []).forEach(function (poly) { poly.forEach(function (p) { add(uv(P(p)), 2); }); });
     (hole.hazards || []).forEach(function (h) { hazardPts(h).forEach(function (p) { add(uv(p), h.pt ? 10 : 3); }); });
     if (pos && hav(pos, g.center) < Math.max(650, st.total_m * 1.3)) add(uv(pos), 10);
@@ -266,17 +294,22 @@
       // ---- stylized course: rough corridor, trees, fairway
       var roughW = 90;
       var fullLine = lineUV.slice(0, -1).concat([gC, { u: gC.u + Math.sin(gAng) * (gLen / 2 + 10), v: gC.v + Math.cos(gAng) * (gLen / 2 + 10) }]);
-      o.push('<polyline points="' + pts(fullLine) + '" fill="none" stroke="' + T.rough + '" stroke-width="' + f1((roughW + 30) * s) + '" stroke-linejoin="round" stroke-linecap="round"/>');
-      o.push('<polyline points="' + pts(fullLine) + '" fill="none" stroke="' + T.rough2 + '" stroke-width="' + f1(roughW * s) + '" stroke-linejoin="round" stroke-linecap="round"/>');
+      var roughLines = [fullLine].concat(others.map(function (og) {
+        return [lineUV[Math.max(0, lineUV.length - 2)], og.C, { u: og.C.u + Math.sin(og.ang) * (og.len / 2 + 10), v: og.C.v + Math.cos(og.ang) * (og.len / 2 + 10) }];
+      }));
+      roughLines.forEach(function (rl) { o.push('<polyline points="' + pts(rl) + '" fill="none" stroke="' + T.rough + '" stroke-width="' + f1((roughW + 30) * s) + '" stroke-linejoin="round" stroke-linecap="round"/>'); });
+      roughLines.forEach(function (rl) { o.push('<polyline points="' + pts(rl) + '" fill="none" stroke="' + T.rough2 + '" stroke-width="' + f1(roughW * s) + '" stroke-linejoin="round" stroke-linecap="round"/>'); });
       // trees: deterministic rows from the rough edge out to the frame edge
       var rnd = rng((hole.n || 1) * 7 + 3), treeSvg = [], nTrees = 0;
       var distToLine = function (q) {
         var m = Infinity;
-        for (var i = 1; i < fullLine.length; i++) {
-          var a = fullLine[i - 1], c = fullLine[i], du = c.u - a.u, dv = c.v - a.v, L2 = du * du + dv * dv || 1e-9;
-          var t = Math.max(0, Math.min(1, ((q.u - a.u) * du + (q.v - a.v) * dv) / L2));
-          m = Math.min(m, Math.hypot(q.u - a.u - du * t, q.v - a.v - dv * t));
-        }
+        roughLines.forEach(function (rl) {
+          for (var i = 1; i < rl.length; i++) {
+            var a = rl[i - 1], c = rl[i], du = c.u - a.u, dv = c.v - a.v, L2 = du * du + dv * dv || 1e-9;
+            var t = Math.max(0, Math.min(1, ((q.u - a.u) * du + (q.v - a.v) * dv) / L2));
+            m = Math.min(m, Math.hypot(q.u - a.u - du * t, q.v - a.v - dv * t));
+          }
+        });
         return m;
       };
       var maxOff = Math.max(W, H) / s;
@@ -341,14 +374,20 @@
       }
     });
 
-    // ---- green
-    var gsvg;
-    if (gPolyUV) {
-      gsvg = '<polygon points="' + pts(gPolyUV) + '" ';
-    } else {
-      var gs = S(gC);
-      gsvg = '<ellipse cx="' + f1(gs.x) + '" cy="' + f1(gs.y) + '" rx="' + f1(gWid / 2 * s) + '" ry="' + f1(gLen / 2 * s) + '" transform="rotate(' + f1(gAng / D2R) + " " + f1(gs.x) + " " + f1(gs.y) + ')" ';
+    // ---- greens (inactive ones first, dimmed)
+    function greenShape(polyUV, C, wid, len, ang) {
+      if (polyUV) return '<polygon points="' + pts(polyUV) + '" ';
+      var gs = S(C);
+      return '<ellipse cx="' + f1(gs.x) + '" cy="' + f1(gs.y) + '" rx="' + f1(wid / 2 * s) + '" ry="' + f1(len / 2 * s) + '" transform="rotate(' + f1(ang / D2R) + " " + f1(gs.x) + " " + f1(gs.y) + ')" ';
     }
+    others.forEach(function (og) {
+      var sh = greenShape(og.poly, og.C, og.wid, og.len, og.ang);
+      if (imagery) o.push(sh + 'fill="none" stroke="' + T.text + '" stroke-width="1.3" stroke-dasharray="4 3" stroke-opacity="0.75"/>');
+      else o.push('<g opacity="0.5">' + sh + 'fill="' + T.collar + '" stroke="' + T.collar + '" stroke-width="' + f1(Math.max(2, 3 * s)) + '" stroke-linejoin="round"/>' + sh + 'fill="' + T.green + '"/></g>');
+      var oc = S(og.C);
+      o.push('<circle cx="' + f1(oc.x) + '" cy="' + f1(oc.y) + '" r="1.8" fill="' + T.text + '" opacity="0.6"/>');
+    });
+    var gsvg = greenShape(gPolyUV, gC, gWid, gLen, gAng);
     if (imagery) o.push(gsvg + 'fill="none" stroke="' + T.text + '" stroke-width="1.6" stroke-opacity="0.9"/>');
     else {
       o.push(gsvg + 'fill="' + T.collar + '" stroke="' + T.collar + '" stroke-width="' + f1(Math.max(2, 3 * s)) + '" stroke-linejoin="round"/>');
@@ -391,6 +430,12 @@
     var gBox = { x0: Math.min.apply(null, gExt.map(function (q) { return q.x; })) - 3, x1: Math.max.apply(null, gExt.map(function (q) { return q.x; })) + 3,
       y0: Math.min.apply(null, gExt.map(function (q) { return q.y; })) - 22, y1: Math.max.apply(null, gExt.map(function (q) { return q.y; })) + 3 };
     boxes.push(gBox);
+    var otherBoxes = others.map(function (og) {
+      var ext = (og.poly || [og.F, og.B, { u: og.C.u - og.wid / 2, v: og.C.v }, { u: og.C.u + og.wid / 2, v: og.C.v }]).map(S);
+      var bx = { x0: Math.min.apply(null, ext.map(function (q) { return q.x; })) - 3, x1: Math.max.apply(null, ext.map(function (q) { return q.x; })) + 3,
+        y0: Math.min.apply(null, ext.map(function (q) { return q.y; })) - 3, y1: Math.max.apply(null, ext.map(function (q) { return q.y; })) + 3 };
+      boxes.push(bx); return bx;
+    });
     allTees.forEach(function (t) { var sp = S(uv(t.p)); boxes.push({ x0: sp.x - 6, x1: sp.x + 6, y0: sp.y - 6, y1: sp.y + 6 }); });
 
     // ---- distance arcs from tee
@@ -465,15 +510,32 @@
         }
         return null;
       }
-      var side = 1, r = tryX(1);
-      if (!r) { side = -1; r = tryX(-1); }
-      if (!r) { side = 1; r = { x: Math.min(W - wmax - 6, gBox.x1 + 7) }; r.bx = { x0: r.x, x1: r.x + wmax, y0: y0, y1: y1 }; }
+      // two-green holes: put the active green's block on the side away from the inactive green
+      var pref = 1;
+      if (others.length) { var ox = 0; others.forEach(function (og) { ox += S(og.C).x; }); pref = ox / others.length > fs.x ? -1 : 1; }
+      var side = pref, r = tryX(pref);
+      if (!r) { side = -pref; r = tryX(-pref); }
+      if (!r) {
+        side = pref;
+        r = pref > 0 ? { x: Math.min(W - wmax - 6, gBox.x1 + 7) } : { x: Math.max(wmax + 6, gBox.x0 - 7) };
+        r.bx = pref > 0 ? { x0: r.x, x1: r.x + wmax, y0: y0, y1: y1 } : { x0: r.x - wmax, x1: r.x, y0: y0, y1: y1 };
+      }
       boxes.push(r.bx);
       rows.forEach(function (e, k) {
         var big = e[0] === "C";
         lab.push(label(r.x, ys[k] + (big ? 5 : 4), String(dist(e[1])), e[2], big ? T.gold : T.text, side > 0 ? "start" : "end", big ? 800 : 600, L[e[0]]));
       });
     })();
+
+    // ---- inactive green(s): small dim pill with side label + center distance
+    others.forEach(function (og, k) {
+      var bx = otherBoxes[k], oc = S(og.C), outer = oc.x < fs.x ? -1 : 1, cy = oc.y;
+      var Rr = [bx.x1 + 5, cy, "start"], Ll = [bx.x0 - 5, cy, "end"];
+      var cand = outer > 0 ? [Rr, Ll] : [Ll, Rr];
+      cand.push([oc.x, bx.y0 - 11, "middle"], [oc.x, bx.y1 + 11, "middle"], [cand[0][0], cy + 16, cand[0][2]], [cand[0][0], cy - 16, cand[0][2]], [cand[1][0], cy + 16, cand[1][2]]);
+      var d = pos ? hav(pos, og.g.center) : st.greens[og.i].toCenter_m;
+      placePill(cand, String(dist(d)), T.muted, greenName(og.g, false), false);
+    });
 
     // ---- target (dogleg) pills
     targets.forEach(function (t) {
@@ -490,9 +552,10 @@
       if (nearest) outer = (h.x0 + h.x1) / 2 >= nearest.x ? 1 : -1;
       var R = [h.x1 + 6, cy, "start"], Lf = [h.x0 - 6, cy, "end"];
       var cand = outer > 0 ? [R, Lf] : [Lf, R];
-      [14, -14, 28, -28].forEach(function (dy) { cand.push([cand[0][0], cy + dy, cand[0][2]], [cand[1][0], cy + dy, cand[1][2]]); });
-      var hcx = (h.x0 + h.x1) / 2;
-      cand.push([hcx, h.y1 + 12, "middle"], [hcx, h.y0 - 12, "middle"], [cand[0][0], cy + 42, cand[0][2]], [cand[1][0], cy - 42, cand[1][2]]);
+      var hcx = (h.x0 + h.x1) / 2, c0 = cand[0], c1 = cand[1];
+      [14, -14, 28, -28].forEach(function (dy) { cand.push([c0[0], cy + dy, c0[2]], [c1[0], cy + dy, c1[2]]); });
+      cand.push([hcx, h.y1 + 12, "middle"], [hcx, h.y0 - 12, "middle"]);
+      [42, -42, 56, -56, 70].forEach(function (dy) { cand.push([c0[0], cy + dy, c0[2]], [c1[0], cy + dy, c1[2]]); });
       var reach = dist(h.reach), carry = dist(h.carry);
       var col = h.type === "water" ? T.waterText : T.bunkerText;
       placePill(cand, String(carry), col, carry - reach > 2 ? String(reach) + "–" : null, false);
@@ -511,6 +574,12 @@
     o.push(lab.join(""));
     o.push("</g>");
 
+    // green name: short "좌"/"Left"/"左", long "좌 그린"/"Left green"/"左グリーン"
+    function greenName(gg, long) {
+      var side = L.gside[gg.id] || gg.label || gg.id || "";
+      if (!long) return side;
+      return lang === "en" ? side + " green" : lang === "ja" ? side + "グリーン" : side + " 그린";
+    }
     // net turn direction of the play line: -1 left, +1 right
     function doglegDir() {
       var t = 0;
@@ -539,11 +608,13 @@
     }
 
     // ---- header
-    var title = L.hole(hole.n) + " · " + L.par + " " + (hole.par || "") + " · " + dist(st.total_m) + (lang === "en" ? " " : "") + units;
+    var title = L.hole(hole.n) + " · " + L.par + " " + (hole.par || "") + " · " + dist(st.total_m) + (lang === "en" ? " " : "") + units +
+      (allGreens.length > 1 ? " · " + greenName(g, true) : "");
+    var titleSize = Math.min(19, Math.floor((W - 18 - 66) / Math.max(1, textW(title, 1.04)) * 10) / 10);
     var teeName = (allTees[teeIdx] || allTees[0] || {}).label || "";
     var teeTxt = lang === "en" ? (teeName ? teeName.charAt(0).toUpperCase() + teeName.slice(1) + " tee" : "Tee") : ((L.tees[teeName] || teeName) + " " + L.tee).trim();
     o.push('<rect width="' + W + '" height="' + (HEAD + 14) + '" fill="url(#' + id + 'hd)"/>');
-    o.push('<text x="18" y="31" font-size="19" font-weight="800" fill="' + T.gold + '" letter-spacing="0.2">' + esc(title) + "</text>");
+    o.push('<text x="18" y="31" font-size="' + titleSize + '" font-weight="800" fill="' + T.gold + '" letter-spacing="0.2">' + esc(title) + "</text>");
     var sub = (fromPos ? L.you : teeTxt) + "  ·  " + L.F + " " + dist(dF) + "  ·  " + L.C + " " + dist(dC) + "  ·  " + L.B + " " + dist(dB);
     o.push('<text x="18" y="53" font-size="11.5" font-weight="500" fill="' + (fromPos ? T.pos : T.muted) + '">' + esc(sub) + "</text>");
     var badge = (hole.nine || "") + (st.dogleg ? "" : "");
