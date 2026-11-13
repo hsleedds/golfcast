@@ -1,7 +1,7 @@
 {
   "name": "Roundcast",
   "short_name": "Roundcast",
-  "description": "Real-time weather & local stops for golfer — 골프장 날씨·강수·맛집",
+  "description": "Real-time weather & local stops for golfer — 골프장 날씨·강수·출발 시각·맛집",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
