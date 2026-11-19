@@ -5,6 +5,10 @@ self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener("fetch", (e) => {
   const u = e.request.url;
+  if (e.request.method === "GET" && u.startsWith(self.location.origin + "/elev/")) { /* 미리 받은 골프장 높이 파일 */
+    e.respondWith(caches.match(u, { ignoreSearch: true }).then((r) => r || fetch(e.request)).catch(() => fetch(e.request)));
+    return;
+  }
   if (e.request.method !== "GET" || !u.startsWith("https://api.vworld.kr/req/wmts/") || !u.includes("/Satellite/")) return;
   e.respondWith(caches.match(u, { ignoreVary: true }).then((r) => r || fetch(e.request)).catch(() => fetch(e.request)));
 });
