@@ -1,16 +1,27 @@
 /* Roundcast service worker — 라운드 날씨 알림 + 미리 받은 골프장 지도(위성사진) 꺼내 쓰기
    지도는 사용자가 [지도 미리 받기]·[라운드 시작]을 눌렀을 때 화면 쪽에서 이 기기 Cache(rc-map-*)에 담아 둔 것만 씀.
-   여기서는 새로 받거나 저장하지 않고, 서버로 보내는 것도 없음. */
+   인터넷이 되면 늘 새로 받고, 안 될 때만 꺼내 씀. 여기서 저장하지 않고, 서버로 보내는 것도 없음. */
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+/* 예전 방식(rc-map-*)으로 받아 둔 지도는 잘못 저장된 빈 사진이 섞일 수 있어 지움 → 앱에서 새로(rc-map2-*) 받음 */
+self.addEventListener("activate", (e) => e.waitUntil(
+  caches.keys().then((ks) => Promise.all(ks.filter((k) => k.startsWith("rc-map-")).map((k) => caches.delete(k))))
+    .catch(() => {}).then(() => self.clients.claim())));
+/* 인터넷 먼저(4초 안에 오면 그걸 씀) → 안 되면 미리 받아 둔 것 */
+function netFirst(req, opt) {
+  const net = new Promise((ok, no) => {
+    const t = setTimeout(() => no(new Error("timeout")), 4000);
+    fetch(req).then((r) => { clearTimeout(t); (r.ok || r.type === "opaque") ? ok(r) : no(new Error("bad " + r.status)); }, (err) => { clearTimeout(t); no(err); });
+  });
+  return net.catch(() => caches.match(req.url, opt).then((r) => r || fetch(req)));
+}
 self.addEventListener("fetch", (e) => {
   const u = e.request.url;
   if (e.request.method === "GET" && u.startsWith(self.location.origin + "/elev/")) { /* 미리 받은 골프장 높이 파일 */
-    e.respondWith(caches.match(u, { ignoreSearch: true }).then((r) => r || fetch(e.request)).catch(() => fetch(e.request)));
+    e.respondWith(netFirst(e.request, { ignoreSearch: true }));
     return;
   }
   if (e.request.method !== "GET" || !u.startsWith("https://api.vworld.kr/req/wmts/") || !u.includes("/Satellite/")) return;
-  e.respondWith(caches.match(u, { ignoreVary: true }).then((r) => r || fetch(e.request)).catch(() => fetch(e.request)));
+  e.respondWith(netFirst(e.request, { ignoreVary: true }));
 });
 self.addEventListener("push", (e) => {
   let d = {};
