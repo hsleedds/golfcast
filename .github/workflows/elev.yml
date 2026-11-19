@@ -1,1 +1,25 @@
-
+name: elev
+# 공유 야디지가 있는 골프장의 높이(표고) 파일을 매일 밤 만들어 elev/ 폴더에 올립니다.
+# 원본: Copernicus DEM GLO-30 (상업 이용 가능, 출처 표시). 이용자 위치는 쓰지 않습니다.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 18 * * *"   # 매일 한국시간 새벽 3시
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install rasterio numpy
+      - run: python tools/elev_build.py
+      - name: 바뀐 파일 올리기
+        run: |
+          git config user.name "roundcast-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add elev
+          git diff --cached --quiet || (git commit -m "elev: 골프장 높이 파일 갱신" && git push)
