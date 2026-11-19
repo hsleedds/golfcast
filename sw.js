@@ -7,6 +7,19 @@ self.addEventListener("activate", (e) => e.waitUntil(
   caches.keys().then((ks) => Promise.all(ks.filter((k) => k.startsWith("rc-map-")).map((k) => caches.delete(k))))
     .catch(() => {}).then(() => self.clients.claim())));
 /* 인터넷 먼저(4초 안에 오면 그걸 씀) → 안 되면 미리 받아 둔 것 */
+/* 위성사진: 먼저 cors로 받아 오류(403·500 등)를 알아볼 수 있게 함. 오류면 미리 받아 둔 사진, 그것도 없으면 그대로 */
+let corsOK = true;
+function tileFirst(req) {
+  const u = req.url;
+  const cached = () => caches.match(u, { ignoreVary: true });
+  const net = new Promise((ok, no) => {
+    const t = setTimeout(() => no(new Error("timeout")), 5000);
+    const go = (mode) => fetch(u, { mode, credentials: "omit" });
+    (corsOK ? go("cors").catch((err) => { if (navigator.onLine !== false) { corsOK = false; return go("no-cors"); } throw err; }) : go("no-cors"))
+      .then((r) => { clearTimeout(t); (r.ok || r.type === "opaque") ? ok(r) : no(new Error("bad " + r.status)); }, (err) => { clearTimeout(t); no(err); });
+  });
+  return net.catch(() => cached().then((r) => r || fetch(req)));
+}
 function netFirst(req, opt) {
   const net = new Promise((ok, no) => {
     const t = setTimeout(() => no(new Error("timeout")), 4000);
@@ -21,7 +34,7 @@ self.addEventListener("fetch", (e) => {
     return;
   }
   if (e.request.method !== "GET" || !u.startsWith("https://api.vworld.kr/req/wmts/") || !u.includes("/Satellite/")) return;
-  e.respondWith(netFirst(e.request, { ignoreVary: true }));
+  e.respondWith(tileFirst(e.request));
 });
 self.addEventListener("push", (e) => {
   let d = {};
